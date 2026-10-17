@@ -1,0 +1,4 @@
+uxmpp
+*.o
+*.core
+ktrace.out
