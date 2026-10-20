@@ -1,5 +1,22 @@
-Just getting started TODO: description and nicities.
+ _   _  __  __  _ __ ___    _ __    _ __ 
+| | | | \ \/ / | '_ ` _ \  | '_ \  | '_ \
+| |_| |  >  <  | | | | | | | |_) | | |_) |
+ \__,_| /_/\_\ |_| |_| |_| | .__/  | .__/  XMPP Utilities The UNIX Way
+-------------------------- |_| --- |_| -----------------------------------
+==========================================================================
 
+Uxmpp consists of a set of tools for querying, testing, configuring, 
+troubleshooting, and generally using XMPP services in a way that fits with
+other basic tools on a given UNIX system.
+
+
+CHANGELOG
+--------------------------------------------------------------------------
+
+Version 0.0.2
+- Add basic xmpp "bot" currently via mucbot command.  FIFOs are created
+  and can be used to interact with a given MUC.
+- Many other small changes.
 
 Version 0.0.1 - Initial Commit
 - Frame in project, and implement a basic disco request

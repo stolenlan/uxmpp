@@ -16,33 +16,38 @@ PREFIX=/usr/local
 MANPREFIX=$(PREFIX)
 
 CC=cc
-CFLAGS=-O2 -fstack-protector-strong -fdiagnostics-color -Wall -Wextra \
-	-Wpedantic -Wshadow -D_DEFAULT_SOURCE -I/usr/local/include
-LDFLAGS=-L/usr/local/lib -lstrophe
-
+_CFLAGS=-O2 -fstack-protector-strong -fdiagnostics-color -Wall -Wextra \
+	-Wpedantic -Wshadow -D_DEFAULT_SOURCE -I/usr/local/include $(CFLAGS)
+LDFLAGS=-L/usr/local/lib -lstrophe -lpthread
 OBJS=disco.o uxmpp.o bot.o
 TGTS=uxmpp
 
 all: $(TGTS)
 
 disco.o: disco.c disco.h
-	$(CC) $(CFLAGS) -c -o $@ disco.c
+	$(CC) $(_CFLAGS) -c -o $@ disco.c
 
 uxmpp.o: uxmpp.c uxmpp.h
-	$(CC) $(CFLAGS) -c -o $@ uxmpp.c
+	$(CC) $(_CFLAGS) -c -o $@ uxmpp.c
 
 bot.o: bot.c bot.h
-	$(CC) $(CFLAGS) -c -o $@ bot.c
+	$(CC) $(_CFLAGS) -c -o $@ bot.c
 
 uxmpp: $(OBJS) main.c
-	$(CC) $(CFLAGS) -o $@ $(OBJS) main.c $(LDFLAGS)
+	$(CC) $(_CFLAGS) -o $@ $(OBJS) main.c $(LDFLAGS)
 
 .PHONY: install
 install: all
 	install -D -m 0755 uxmpp $(DESTDIR)$(PREFIX)/bin/uxmpp
 	install -D -m 0644 uxmpp.1 $(DESTDIR)$(MANPREFIX)/man/man1/uxmpp.1
 
+.PHONY: test
+test: all
+	MALLOC_OPTIONS=DCV ktrace -tu ./uxmpp -dh xmpp.sinelabs.ca disco
+	kdump -u malloc -f ./ktrace.out
+
 clean:
 	rm -f *.o $(TGTS)
-	rm -f *.core
-	rm -f ktrace.out
+	rm -f *.core *.stderr *.stdout
+	rm -f ktrace.out *.fifo
+	rm -f from-* to-*

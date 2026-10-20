@@ -25,7 +25,6 @@
 #include "uxmpp.h"
 #include "disco.h"
 
-extern int f_debug;
 const char *disco_host;
 
 static char *
@@ -49,6 +48,9 @@ display_disco_info(xmpp_stanza_t * const child)
 	static const char *address_types[] = {XEP_0157_ADDRESSES, NULL};
 	static const int colw = 12;
 	const char *name = xmpp_stanza_get_name(child);
+
+	xmpp_ctx_t *ctx = xmpp_stanza_get_context(child);
+
 	int n_atypes = 0;
 
 	for (n_atypes = 0; address_types[n_atypes] != NULL; n_atypes++);
@@ -79,9 +81,9 @@ display_disco_info(xmpp_stanza_t * const child)
 					xmpp_stanza_get_children(field);
 				for (; value; value =
 					xmpp_stanza_get_next(value)) {
-					const char *d = xmpp_stanza_get_text(
-						value);
+					char *d = xmpp_stanza_get_text(value);
 					printf("%*s: %s\n", colw, albl, d);
+					xmpp_free(ctx, d);
 				}
 			}
 		}
@@ -181,36 +183,18 @@ on_connect(xmpp_conn_t * const conn,
 }
 
 int
-host_disco(const char *jid, const char *_password, const char *host)
+host_disco(const char *jid, const char *password, const char *host)
 {
-	/* Because, we will not try to modify*/
-	char *password = (char *)_password;
-	char in_password[256];
-
 	disco_host = host;
 	xmpp_ctx_t *ctx;
 	xmpp_conn_t *conn;
 
-	if (jid == NULL)
-		jid = getenv("XMPP_JID");
-
-	if (jid == NULL) {
-		fprintf(stderr, "Missing JID: "
-			"use -j or set the XMPP_JID "
-			"environment variable.\n");
+	if (jid == NULL || password == NULL) {
+		fprintf(stderr, "Invalid or missing credentials.\n");
 		return 1;
 	}
 
-	memset(in_password, '\0', 256);
-
-	if (password == NULL)
-		password = getenv("XMPP_PASSWORD");
-
-	if (password == NULL)
-		if (pw_prompt("Password: ", in_password))
-			password = in_password;
-
-	if (jid == NULL || password == NULL) {
+	if (!strlen(jid)) {
 		fprintf(stderr, "Invalid or missing credentials.\n");
 		return 1;
 	}

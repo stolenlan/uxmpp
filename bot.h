@@ -17,7 +17,22 @@
 #define _BOT_H 1
 
 #include <strophe.h>
+#include "uxmpp.h"
 
-int 		start_bot(const char *jid, const char *muc, const void *usr);
+typedef struct {
+	xmpp_conn_t *conn;
+	xmpp_ctx_t *ctx;
+	char *nick;
+	char *jid;
+	char *muc;
+	char *pass;
+	char *in_fifo;
+	char *out_fifo;
+	int part;
+	int connected;
+} bot_ctx_t;
+
+int 		start_bot(bot_ctx_t *usr);
+void 		stop_bot(int signal);
 
 #endif
