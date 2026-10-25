@@ -17,6 +17,8 @@
 #define _BOT_H 1
 
 #include <strophe.h>
+#include <pthread.h>
+
 #include "uxmpp.h"
 
 typedef struct {
@@ -28,8 +30,9 @@ typedef struct {
 	char *pass;
 	char *in_fifo;
 	char *out_fifo;
-	int part;
+	int quit;
 	int connected;
+	pthread_t fifo_thread;
 } bot_ctx_t;
 
 int 		start_bot(bot_ctx_t *usr);

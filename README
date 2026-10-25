@@ -13,6 +13,13 @@ other basic tools on a given UNIX system.
 CHANGELOG
 --------------------------------------------------------------------------
 
+Version 0.0.5
+- Change default mucbot behaviour so that by default fifo's are not
+  created.
+- Many small changes, refactors etc. as the project takes shape
+- Added xmpp ping support (basic)
+- Updated bot.c to support xmpp ping, version, and disco.
+
 Version 0.0.2
 - Add basic xmpp "bot" currently via mucbot command.  FIFOs are created
   and can be used to interact with a given MUC.
@@ -20,3 +27,16 @@ Version 0.0.2
 
 Version 0.0.1 - Initial Commit
 - Frame in project, and implement a basic disco request
+
+
+
+
+
+NOTES
+--------------------------------------------------------------------------
+
+## XEP 0115 Entity Capabilities (Ver-gen)
+client/pc//uxmpp 0.0.5<http://jabber.org/protocol/caps<http://jabber.org/protocol/disco#info<http://jabber.org/protocol/disco#items<http://jabber.org/protocol/muc<urn:xmpp:ping<urn:xmpp:time<
+sha1 -qb moot
+CvwT/IXjcLf0hHKEP8wMzDOyhqc=
+

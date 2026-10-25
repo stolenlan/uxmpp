@@ -22,7 +22,7 @@
 .Cm Generic Form:
 .Nm
 .Op Fl d
-.Op Fl h Ar bare_xmpp_host
+.Op Fl h Ar host_jid
 .Op Fl p Ar password
 .Op Fl u Ar user_jid
 .Op Fl v
@@ -30,7 +30,7 @@
 .Pp
 .Nm
 .Op Fl d
-.Fl h Ar bare_xmpp_host
+.Fl h Ar host_jid
 .Op Fl p Ar password
 .Op Fl u Ar user_jid
 .Cm disco
@@ -48,8 +48,8 @@ The options are as follows:
 .Bl -tag -width Ds
 .It Fl d
 Enable debug messages to stderr
-.It Fl h Ar bare_xmpp_host
-Specify a bare xmpp hostname. For example:
+.It Fl h Ar host_jid
+Provide a target host/JID for a given function. For example:
 .Cm xmpp.example.com .
 .It Fl p Ar password
 Specify a password. You should know it is widely accepted as a bad idea to
@@ -81,7 +81,7 @@ are required in order to actually do anything
 .Bl -tag -width Ds
 .It Cm disco
 Perform a host disco(very) on
-.Ar bare_xmpp_host
+.Ar host_jid
 using a
 .Ar user_jid
 corresponding to an active user JID of the target host or of another provider

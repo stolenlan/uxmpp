@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <termios.h>
 
+#include <strophe.h>
+
 #include "uxmpp.h"
 
 int
@@ -58,6 +60,19 @@ get_jid_credentials(char *jid, char *password)
 	}
 
 	return 1;
+}
+
+int  jid_get_local(char out[REGSTR_MAX], const char *jid)
+{
+	const char *ip = jid;
+	char *op = out;
+	int len;
+
+	for (len = 0; *ip != '\0' && *ip != '@'; ip++, len++) {
+		*op++ = *ip;
+	}
+
+	return len;
 }
 
 int

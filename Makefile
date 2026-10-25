@@ -19,7 +19,7 @@ CC=cc
 _CFLAGS=-O2 -fstack-protector-strong -fdiagnostics-color -Wall -Wextra \
 	-Wpedantic -Wshadow -D_DEFAULT_SOURCE -I/usr/local/include $(CFLAGS)
 LDFLAGS=-L/usr/local/lib -lstrophe -lpthread
-OBJS=disco.o uxmpp.o bot.o
+OBJS=disco.o uxmpp.o bot.o ping.o
 TGTS=uxmpp
 
 all: $(TGTS)
@@ -32,6 +32,9 @@ uxmpp.o: uxmpp.c uxmpp.h
 
 bot.o: bot.c bot.h
 	$(CC) $(_CFLAGS) -c -o $@ bot.c
+
+ping.o: ping.c ping.h
+	$(CC) $(_CFLAGS) -c -o $@ ping.c
 
 uxmpp: $(OBJS) main.c
 	$(CC) $(_CFLAGS) -o $@ $(OBJS) main.c $(LDFLAGS)

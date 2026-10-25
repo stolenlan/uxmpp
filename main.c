@@ -25,11 +25,13 @@
 #include "uxmpp.h"
 #include "bot.h"
 #include "disco.h"
+#include "ping.h"
 
 #define CMDLEN_MAX 256
 
 char *__progname;
 int 	f_debug = 0;          /* Debug Flag */
+int  	f_fifos = 0;
 
 int
 main(int argc, char *argv[])
@@ -37,9 +39,9 @@ main(int argc, char *argv[])
 	char 	c, 
 		command[CMDLEN_MAX], host[HSTLEN_MAX],
 		jid[REGSTR_MAX], password[REGSTR_MAX],
-		muc[REGSTR_MAX],
+		muc[REGSTR_MAX], cwd[PATH_MAX],
 		bot_in_fifo[PATH_MAX], bot_out_fifo[PATH_MAX],
-		*nick = NULL;
+		nick[REGSTR_MAX];
 
 	#ifdef __OpenBSD__
 	if (pledge("stdio unveil dns inet rpath cpath dpath wpath tty", 
@@ -52,18 +54,23 @@ main(int argc, char *argv[])
 	memset(jid,          '\0', REGSTR_MAX);
 	memset(password,     '\0', REGSTR_MAX);
 	memset(muc,          '\0', REGSTR_MAX);
+	memset(nick,         '\0', REGSTR_MAX);
 	memset(bot_in_fifo,  '\0', REGSTR_MAX);
 	memset(bot_out_fifo, '\0', REGSTR_MAX);
 	
-	while((c = getopt(argc, argv, "dh:i:j:m:n:o:p:v")) != -1) {
+	while((c = getopt(argc, argv, "dfh:i:j:m:n:o:p:v")) != -1) {
 		switch (c) {
 		case 'd':
 			f_debug = 1;
+			break;
+		case 'f':
+			f_fifos = 1;
 			break;
 		case 'h':	
 			snprintf(host, sizeof(host), "%s", optarg);
 			break;
 		case 'i':
+			f_fifos = 1;
 			snprintf(bot_in_fifo, REGSTR_MAX, "%s", optarg);
 			break;
 		case 'j':
@@ -73,10 +80,10 @@ main(int argc, char *argv[])
 			snprintf(muc, REGSTR_MAX, "%s", optarg);
 			break;
 		case 'n':
-			// snprintf(nick, REGSTR_MAX, "%s", optarg);
-			nick = optarg;
+			snprintf(nick, REGSTR_MAX, "%s", optarg);
 			break;
 		case 'o':
+			f_fifos = 1;
 			snprintf(bot_out_fifo, REGSTR_MAX, "%s", optarg);
 			break;
 		case 'p':
@@ -91,35 +98,38 @@ main(int argc, char *argv[])
 		}
 	}
 
-	#ifdef __OpenBSD__
-		char cwd[PATH_MAX];
-		memset(cwd, '\0', PATH_MAX);
-		getcwd(cwd, PATH_MAX);
+	memset(cwd, '\0', PATH_MAX);
+	getcwd(cwd, PATH_MAX);
 
-		if (!strlen(bot_in_fifo) && strlen(muc)) {
-			snprintf(bot_in_fifo, PATH_MAX, "%s/%s-%s", 
-				cwd, "to", muc);
-		}
+// #pragma GCC diagnostic push
+// #pragma GCC diagnostic ignored "-Wformat-truncation"
+// 	/* If the combined path is truncated, we may have an issue */
+// 	if (!strlen(bot_in_fifo) && strlen(muc)) {
+// 		snprintf(bot_in_fifo, PATH_MAX, "%s/%s-%s", 
+// 			cwd, "to", muc);
+// 	}
 
-		if (!strlen(bot_out_fifo) && strlen(muc)) {
-			snprintf(bot_out_fifo, PATH_MAX, "%s/%s-%s", 
-				cwd, "from", muc);
-		}
+// 	if (!strlen(bot_out_fifo) && strlen(muc)) {
+// 		snprintf(bot_out_fifo, PATH_MAX, "%s/%s-%s", 
+// 			cwd, "from", muc);
+// 	}
+// 	/* TODO: use access() to determine if the path is valid first */
+// #pragma GCC diagnostic pop
 
-		if (strlen(bot_in_fifo) && unveil(bot_in_fifo, "rwc") < 0)
-			return 1;
+#ifdef __OpenBSD__
+	if (strlen(bot_in_fifo) && unveil(bot_in_fifo, "rwc") < 0)
+		return 1;
 
-		if (strlen(bot_out_fifo) && unveil(bot_out_fifo, "rwc") < 0)
-			return 1;
+	if (strlen(bot_out_fifo) && unveil(bot_out_fifo, "rwc") < 0)
+		return 1;
 
-
-		if ( unveil("/etc/hosts", "r") < 0
-			|| unveil("/etc/resolv.conf", "r") < 0
-			|| unveil("/etc/ssl/cert.pem", "r") < 0)
-			return 1;
-		if ( unveil(NULL,NULL) < 0)
-			return 1;
-	#endif
+	if ( unveil("/etc/hosts", "r") < 0
+		|| unveil("/etc/resolv.conf", "r") < 0
+		|| unveil("/etc/ssl/cert.pem", "r") < 0)
+		return 1;
+	if ( unveil(NULL,NULL) < 0)
+		return 1;
+#endif
 
 	if(optind < argc && strlen(argv[optind]) < CMDLEN_MAX ) {
 		snprintf(command, CMDLEN_MAX, "%s", argv[optind++]);
@@ -156,25 +166,39 @@ main(int argc, char *argv[])
 		if (!get_jid_credentials(jid, password))
 			return 1;
 
+		if (!strlen(nick))
+			jid_get_local(nick, jid);
+
 		bot_ctx_t bot;
-		bot.nick = (nick) ? nick : "mucbot";
+		bot.nick = nick;
 		bot.jid = jid;
 		bot.pass = password;
 		bot.in_fifo = bot_in_fifo;
 		bot.out_fifo = bot_out_fifo;
 		bot.muc = muc;
 
-		signal(SIGINT, stop_bot);
-		signal(SIGTERM, stop_bot);
-		signal(SIGQUIT, stop_bot);
+		/* 2 == SIGINT, 3 == SIGQUIT, 15 == SIGTERM 
+		   The reason for not using the defs is: because Linux. */
+		signal(2, stop_bot);
+		signal(3, stop_bot);
+		signal(15, stop_bot);
+
 		return start_bot(&bot);
 	}
 
-	if (strncmp(command, "nick_from_jid", strlen(command)) == 0) {
 
+	if (strncmp(command, "ping", strlen(command)) == 0) {
+		if (!strlen(muc)) {
+			printf("A jid is required, "
+				"specify with -m\n");
+			return 1;
+		}
 
+		if (!get_jid_credentials(jid, password))
+			return 1;
 
-		return 0;
+		return xmpp_ping(jid, password, muc);
+		
 	}
 
 	printf("Unknown command: %s\n", command);

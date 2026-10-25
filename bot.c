@@ -15,20 +15,25 @@
  */
 
 #include <sys/stat.h>
-#include <sys/select.h>
 #include <unistd.h>
 #include <stdio.h>
 #include <fcntl.h>
 #include <strophe.h>
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
 #include <pthread.h>
 
 #include "uxmpp.h"
 #include "bot.h"
 
-bot_ctx_t *running_bot = NULL;
 
+#define DEFAULT_REPLY \
+"Sorry?\n"\
+"Just a dumb bot here, no LLMs, telemetry, or funny-business.\n"\
+"I do a few things, and do them well, but general chat is not one of them.\n"\
+
+bot_ctx_t *running_bot = NULL;
 
 static int
 send_muc_message(xmpp_conn_t *const conn, const char *text,
@@ -44,63 +49,234 @@ send_muc_message(xmpp_conn_t *const conn, const char *text,
 	return 0;
 }
 
+static char *
+iq_time(void)
+{
+	static char xmpp_time[2048] = {0};
+
+	time_t ct = time(NULL);
+	struct tm *lt_tm = localtime(&ct);
+	struct tm *gt_tm = gmtime(&ct);
+
+	char utcbuf[64], offbuf[64], sign = ' ';
+	memset(utcbuf, '\0', 64);
+	memset(offbuf, '\0', 64);
+	strftime(utcbuf, 63, "%Y-%m-%dT%H:%M:%SZ", gt_tm);
+
+	long int gmtoff = lt_tm->tm_gmtoff;
+
+	if (gmtoff < 0) {
+		sign = '-';
+		gmtoff = gmtoff * -1;
+	} else {
+		sign = '+';
+	}
+
+	snprintf(offbuf, 64, "%c%02ld:%02ld",
+		sign, gmtoff/60/60, (gmtoff/60)%60);
+
+	snprintf(xmpp_time, REGSTR_MAX,
+		"<time xmlns='urn:xmpp:time'>"
+			"<tzo>%s</tzo>"
+			"<utc>%s</utc>"
+		"</time>\n",
+		offbuf, utcbuf);
+
+	return xmpp_time;
+}
 
 static void *
-th_watch_fifo(void *userdata) {
-
-
+th_watch_fifo(void *userdata)
+{
 	bot_ctx_t *bctx = userdata;
-	int fd = open(bctx->in_fifo, O_RDONLY | O_NONBLOCK, 0);
+
+	if (bctx->quit || !strlen(bctx->in_fifo))
+		return NULL;
+
+	int fd = open(bctx->in_fifo, O_RDONLY, 0);
 	if (fd == -1) {
-		fprintf(stderr, "Unable to open: %s\n", bctx->in_fifo);
-		return 0;
+		if (f_debug)
+			fprintf(stderr, "Unable to open: %s\n", bctx->in_fifo);
+		return NULL;
 	}
 
-	while (!bctx->part) {
-		char buf[4096];
-		memset(buf, '\0', 4096);
-		if(read(fd, buf, 4095) > 0) {
-			if (f_debug)
-				fprintf(stderr,
-				"Sending data received from %s to MUC %s\n",
-				bctx->in_fifo, bctx->muc);
-			send_muc_message(bctx->conn, buf, userdata);
-		}
+	char buf[4096];
+	memset(buf, '\0', 4096);
+	ssize_t buf_br;
+	if( (buf_br = read(fd, buf, 4095)) > 0) {
+		if (f_debug)
+			fprintf(stderr,
+			"Sending data received from %s to MUC %s\n",
+			bctx->in_fifo, bctx->muc);
+		send_muc_message(bctx->conn, buf, userdata);
+	} else {
+		fprintf(stderr, "Error reading %s\n", bctx->in_fifo);
 	}
+
+	close(fd);
+	bctx->fifo_thread = 0;
+	if (pthread_create(&bctx->fifo_thread,
+		NULL, th_watch_fifo, userdata) == 0)
+		pthread_detach(bctx->fifo_thread);
 
 	return NULL;
 }
 
 static int
-tm_presence_heartbeat(xmpp_conn_t *const conn, void *const userdata)
-{
-	bot_ctx_t *bctx = userdata;
-	if (bctx->part)
+cb_iq(xmpp_conn_t *const conn, xmpp_stanza_t *const stanza, 
+	void *const userdata) {
+	char buf[2048];
+	memset(buf, '\0', 2048);
+
+	(void)conn;
+	(void)stanza;
+	bot_ctx_t *bctx = (bot_ctx_t *)userdata;
+	xmpp_ctx_t *ctx = bctx->ctx;
+
+	const char *id = xmpp_stanza_get_id(stanza);
+	const char *from = xmpp_stanza_get_from(stanza);
+	const char *to = xmpp_stanza_get_to(stanza);
+	xmpp_stanza_t *query = NULL;
+
+	if (!id || !from)
 		return 1;
 
-	char muc_jid_buf[REGSTR_MAX];
-	xmpp_stanza_t *presence = xmpp_presence_new(bctx->ctx);
-	xmpp_stanza_set_id(presence, bctx->jid);
-	xmpp_stanza_set_type(presence, "available");
-	memset(muc_jid_buf, '\0', REGSTR_MAX);
-	snprintf(muc_jid_buf, REGSTR_MAX, "%s/%s",
-		bctx->muc, bctx->nick);
-	xmpp_stanza_set_to(presence, muc_jid_buf);
-	xmpp_send(conn, presence);
-	xmpp_stanza_release(presence);
+	// I need to extract the node info
+	char *from_node = xmpp_jid_node(ctx, from);
+	char *from_domain = xmpp_jid_domain(ctx, from);
+	char *from_resource = xmpp_jid_resource(ctx, from);
+
+	char *to_node = xmpp_jid_node(ctx, to);
+	char *to_domain = xmpp_jid_domain(ctx, to);
+	char *to_resource = xmpp_jid_resource(ctx, to);
+
+	if ((query = xmpp_stanza_get_child_by_ns(stanza, "urn:xmpp:ping")) 
+		!= NULL)
+		/* XEP-0092 Software Version */
+		snprintf(buf, 2048,
+		"<iq type='result' to='%s' from='%s' id='%s'/>",
+		xmpp_jid_new(ctx, from_node, from_domain, from_resource),
+		xmpp_jid_new(ctx, to_node, to_domain, to_resource),
+		id);
+
+	if ((query = xmpp_stanza_get_child_by_ns(stanza, "urn:xmpp:time")) 
+		!= NULL) {
+
+		/* XEP-0092 Software Version */
+		snprintf(buf, 2048,
+		"<iq type='result' to='%s' from='%s' id='%s'>"
+		"%s"
+		"</iq>",
+		xmpp_jid_new(ctx, from_node, from_domain, from_resource),
+		xmpp_jid_new(ctx, to_node, to_domain, to_resource),
+		id, iq_time());
+	}
+
+	if ((query = xmpp_stanza_get_child_by_ns(stanza, "jabber:iq:version")) 
+		!= NULL)
+		/* XEP-0092 Software Version */
+		snprintf(buf, 2048,
+		"<iq type='result' to='%s' from='%s' id='%s'>"
+		"<query xmlns='jabber:iq:version'>"
+		"<name>uxmpp</name>"
+		"<version>%d.%d.%d</version>"
+		"<os>Win98SE</os>"
+		"</query>"
+		"</iq>",
+		xmpp_jid_new(ctx, from_node, from_domain, from_resource),
+		xmpp_jid_new(ctx, to_node, to_domain, to_resource),
+		id, VER_MAJ, VER_MIN, VER_PNT);
+		
+
+	if ((query = xmpp_stanza_get_child_by_ns(stanza,
+			"http://jabber.org/protocol/disco#info")) != NULL)
+		snprintf(buf, 2048,
+		"<iq from=\"%s\" id=\"%s\" to=\"%s\" type='result'>"
+		"<query xmlns='http://jabber.org/protocol/disco#info'"
+		" node='https://sinelabs.ca/uxmpp/mucbot#" XEP_0115_VER "'>"
+		"<identity category='client' name='uxmpp %d.%d.%d' type='pc'/>"
+		"<feature var='http://jabber.org/protocol/caps'/>"
+		"<feature var='http://jabber.org/protocol/disco#info'/>"
+		"<feature var='http://jabber.org/protocol/disco#items'/>"
+		"<feature var='http://jabber.org/protocol/muc'/>"
+		"<feature var='urn:xmpp:ping'/>"
+		"<feature var='urn:xmpp:time'/>"
+		"</query>"
+		"</iq>",
+		xmpp_jid_new(ctx, to_node, to_domain, to_resource),
+		id,
+		xmpp_jid_new(ctx, from_node, from_domain, from_resource),
+		VER_MAJ, VER_MIN, VER_PNT);
+
+	if ((query = xmpp_stanza_get_child_by_ns(stanza,
+		"http://jabber.org/protocol/disco#items")) != NULL)
+		snprintf(buf, 2048,
+		"<iq from=\"%s\" id=\"%s\" to=\"%s\" type='result'>"
+		"<query xmlns='http://jabber.org/protocol/disco#items'/>"
+		"</iq>",
+		xmpp_jid_new(ctx, to_node, to_domain, to_resource),
+		id,
+		xmpp_jid_new(ctx, from_node, from_domain, from_resource));
+
+	if (strlen(buf)) {
+		xmpp_stanza_t *iq = xmpp_stanza_new_from_string(ctx, buf);
+		xmpp_send(conn, iq);
+		xmpp_stanza_release(iq);
+	}
+	
+	return 1;
+}
+
+static int
+cb_presence(xmpp_conn_t *const conn, xmpp_stanza_t *const stanza,
+	void *const userdata)
+{
+	static int joined = 0;
+	(void)conn;
+	bot_ctx_t *bctx = (bot_ctx_t *)userdata;
+	xmpp_stanza_t *x, *status;
+	const char *type;
+
+	x = xmpp_stanza_get_child_by_name_and_ns(stanza, "x",
+		"http://jabber.org/protocol/muc#user");
+	type = xmpp_stanza_get_type(stanza);
+	
+	if (!x)
+		return 1;
+
+	status = xmpp_stanza_get_child_by_name(x, "status");
+
+	if (status) {
+		const char *code = xmpp_stanza_get_attribute(
+			status, "code");
+		if (code && strncmp(code, "110", strlen(code)) == 0) {
+			if (type && strlen(type) && strncmp(type, 
+				"unavailable", strlen(type)) == 0)
+				fprintf(stderr, "LEFT: %s\n", bctx->muc);
+			else if (joined == 0) {
+				fprintf(stderr, "JOINED: %s\n", bctx->muc);
+				joined = 1;
+			}
+		}
+	}
 
 	return 1;
 }
 
 static int
-cb_handler(xmpp_conn_t *const conn, xmpp_stanza_t *const stanza,
+cb_message(xmpp_conn_t *const conn, xmpp_stanza_t *const stanza,
 	void *const userdata) {
-
 	const char *type, *id, *p,
 		*name = NULL, 
-		*from = "";
+		*from = "",
+		*soh  = "\x01",
+		*nl   = "\n";
+
+	char c, buf[4096];
+
 	bot_ctx_t *bctx = userdata;
 	xmpp_ctx_t *ctx = bctx->ctx;
+	
 	
 	name = xmpp_stanza_get_name(stanza);
 	type = xmpp_stanza_get_type(stanza);
@@ -110,29 +286,6 @@ cb_handler(xmpp_conn_t *const conn, xmpp_stanza_t *const stanza,
 	(void)conn;
 	(void)name;
 
-	if (bctx->part) {
-		xmpp_stop(ctx);
-		return 0;
-	}
-
-	if (name && strncmp(name, "presence", strlen(name)) == 0) {
-		xmpp_stanza_t *x = xmpp_stanza_get_child_by_name_and_ns(
-			stanza, "x", "http://jabber.org/protocol/muc#user");
-		if (!x)
-			return 1;
-		xmpp_stanza_t *status = xmpp_stanza_get_child_by_name(
-			x, "status");
-
-		if (status) {
-			const char *code = xmpp_stanza_get_attribute(
-				status, "code");
-			if (strncmp(code, "110", strlen(code)) == 0) {
-				
-			}
-		}
-
-	}
-
 	if (!type || !id)
 		return 1;
 
@@ -140,27 +293,79 @@ cb_handler(xmpp_conn_t *const conn, xmpp_stanza_t *const stanza,
 		char *body = xmpp_message_get_body(stanza);
 		if (!body) return 1;
 
-
 		printf("%s: %s\n", xmpp_stanza_get_from(stanza), body);
-		int fd = open(bctx->out_fifo, O_WRONLY);
-		if (fd == -1) {
-			fprintf(stderr, "Error opening %s\n", bctx->out_fifo);
-			return 1;
-		}
-		p = from; /* Seek the pointer up through the slash */
-		for (char c = *p; p && c != '/'; c = *p++);
-		const char *sep = ": ";
-		// if (*p == '/' && strlen(p+1))
-			write(fd, from, strlen(from));
-		// else
-			// write(fd, bctx->muc, strlen(bctx->muc));
-		write(fd, sep, strlen(sep));
-		write(fd, body, strlen(body));
-		close(fd);
 
-		// Open the read fifo, and see if there are any messages waiting
+		p = from; /* Seek the pointer up through the slash */
+		for (c = *p; p && c != '/'; c = *p++);
+
+		if (strncmp(body, "test", strlen(body)) == 0) {
+			memset(buf, '\0', sizeof(buf));
+			snprintf(buf, sizeof(buf), "%s: %s", p,
+				"ACK! I trust your test was successful.");
+			send_muc_message(conn, buf, userdata);
+		}
+
+		c = body[strlen(bctx->nick)];
+		if (strncmp(body, bctx->nick, strlen(bctx->nick)) == 0
+			&& (c == ':' || c == ',')) {
+			memset(buf, '\0', sizeof(buf));
+			snprintf(buf, sizeof(buf), "%s: %s", p, DEFAULT_REPLY);
+			snprintf(buf, sizeof(buf), "%s\nsee: !%s help",
+				buf, bctx->nick);
+			send_muc_message(conn, buf, userdata);
+		}
+
+		if (strlen(bctx->out_fifo)) {
+			int fd = open(bctx->out_fifo, O_WRONLY);
+			if (fd == -1) {
+				fprintf(stderr, "Error opening %s\n", bctx->out_fifo);
+				return 1;
+			}
+
+			write(fd, soh, 1);
+			write(fd, from, strlen(from));
+			write(fd, nl, 1);
+			write(fd, body, strlen(body));
+			close(fd);
+		}
+		
 		xmpp_free(ctx, body);
 
+	} else if (strncmp(type, "chat", strlen(type)) == 0 && id) {
+		char *body = xmpp_message_get_body(stanza);
+		if (!body)
+			return 1;
+		fprintf(stderr, "%s",   soh);
+		fprintf(stderr, "%s: ", from);
+		fprintf(stderr, "%s\n", body);
+
+		// memset(buf, '\0', sizeof(buf));
+		// snprintf(buf, sizeof(buf), "%s: %s", p, DEFAULT_REPLY);
+		// snprintf(buf, sizeof(buf), "%s\nsee: !%s help", 
+		// 	buf, bctx->nick);
+		
+		// TODO create send_direct_message()
+		// send_muc_message(conn, buf, userdata);
+
+		xmpp_free(ctx, body);
+	} else {
+		fprintf(stderr, "received unhandled message: %s:%s:%s:%s\n",
+			name, type, id, from);
+	}
+
+	return 1;
+}
+
+static int
+cb_handler(xmpp_conn_t *const conn, xmpp_stanza_t *const stanza,
+	void *const userdata) {
+	(void)stanza;
+	bot_ctx_t *bctx = (bot_ctx_t *)userdata;
+	if (bctx->quit) {
+		if (f_debug)
+			fprintf(stderr, "cb_handler: xmpp_disconnect()");
+		xmpp_disconnect(conn);
+		return 0;
 	}
 
 	return 1;
@@ -169,10 +374,23 @@ cb_handler(xmpp_conn_t *const conn, xmpp_stanza_t *const stanza,
 static int
 mk_fifos(bot_ctx_t *bctx)
 {
+	// TODO: exit on failure
+	if (strlen(bctx->in_fifo))
+		mkfifo(bctx->in_fifo, 0664);
 
-	// TOODO, CHECK IF THEY're VALID AND SHIT
-	mkfifo(bctx->in_fifo, 0664);
-	mkfifo(bctx->out_fifo, 0664);
+	if (strlen(bctx->out_fifo))
+		mkfifo(bctx->out_fifo, 0664);
+
+	return 1;
+}
+
+static int
+del_fifos(bot_ctx_t *bctx)
+{
+	if (strlen(bctx->in_fifo))
+		unlink(bctx->in_fifo);
+	if (strlen(bctx->out_fifo))
+		unlink(bctx->out_fifo);
 
 	return 1;
 }
@@ -181,34 +399,68 @@ static void
 on_connect(xmpp_conn_t * const conn, xmpp_conn_event_t status, int error, 
 	xmpp_stream_error_t *stream_error, void * const userdata)
 {
-	pthread_t thread;
 	char muc_jid_buf[REGSTR_MAX];
 	bot_ctx_t *bctx = userdata;
 	xmpp_ctx_t *ctx = bctx->ctx;
 
 	if (status == XMPP_CONN_CONNECT) {
-		xmpp_stanza_t *presence = xmpp_presence_new(ctx);
-		xmpp_stanza_set_id(presence, bctx->jid);
 		memset(muc_jid_buf, '\0', REGSTR_MAX);
 		snprintf(muc_jid_buf, REGSTR_MAX, "%s/%s",
 			bctx->muc, bctx->nick);
-		xmpp_stanza_set_to(presence, muc_jid_buf);
-		
-		xmpp_handler_add(conn, cb_handler, NULL, NULL, NULL, bctx);
-		xmpp_timed_handler_add(conn,
-			tm_presence_heartbeat,
-			60000, userdata);
 
-		mk_fifos(bctx);
-		
 		bctx->connected = 1;
 		running_bot = userdata;
 
+		mk_fifos(bctx);
+		
+		/* Channel presence ID */
+		char *cpid = xmpp_uuid_gen(ctx);
+
+		xmpp_handler_add(conn, cb_message, NULL,
+			"message", NULL, bctx);
+		// xmpp_handler_add(conn, cb_presence, NULL,
+		// 	"presence", NULL, bctx);
+		xmpp_id_handler_add(conn, cb_presence, cpid, bctx);
+		xmpp_handler_add(conn, cb_iq, NULL,
+			"iq", "get", bctx);
+		xmpp_handler_add(conn, cb_handler, NULL,
+			NULL, NULL, bctx);
+
+		xmpp_stanza_t *pres = xmpp_presence_new(ctx);
+		xmpp_send(conn, pres);
+		xmpp_stanza_release(pres);
+
+		xmpp_stanza_t *presence = xmpp_stanza_new(ctx);
+		xmpp_stanza_set_name(presence, "presence");
+		
+		xmpp_stanza_set_id(presence, cpid);
+		xmpp_stanza_set_to(presence, muc_jid_buf);
+
+		xmpp_stanza_t *c = xmpp_stanza_new_from_string(ctx,
+			"<c xmlns='http://jabber.org/protocol/caps' "
+     				"hash='sha-1' "
+     				"node='https://sinelabs.ca/uxmpp/mucbot' "
+     				"ver='" XEP_0115_VER "'/>");
+		xmpp_stanza_add_child(presence, c);
+		xmpp_stanza_release(c);
+
+		xmpp_stanza_t *x = xmpp_stanza_new_from_string(ctx,
+			"<x xmlns='http://jabber.org/protocol/muc'/>");
+		xmpp_stanza_add_child(presence, x);
+		xmpp_stanza_release(x);
+
 		xmpp_send(conn, presence);
 		xmpp_stanza_release(presence);
+		xmpp_free(ctx, cpid);
 
-		pthread_create(&thread, NULL, th_watch_fifo, userdata);
-		pthread_detach(thread);
+		if (strlen(bctx->in_fifo)) {
+			if (pthread_create(&bctx->fifo_thread, NULL, 
+				th_watch_fifo, userdata) == 0)
+				pthread_detach(bctx->fifo_thread);
+			else
+				fprintf(stderr,
+					"ERROR: Unable to spawn thread\n");
+		}
 
 	} else if (status == XMPP_CONN_FAIL) {
 		fprintf(stderr, "Connection or authentication "
@@ -232,7 +484,7 @@ start_bot(bot_ctx_t *usr)
 	running_bot = NULL;
 	bot_ctx_t *bctx = usr;
 	bctx->connected = 0;
-	bctx->part = 0;
+	bctx->quit = 0;
 
 	if (bctx->jid == NULL || bctx->pass == NULL) {
 		fprintf(stderr, "Invalid or missing credentials.\n");
@@ -274,14 +526,11 @@ start_bot(bot_ctx_t *usr)
 	else
 		xmpp_run(bctx->ctx);
 
-
 	xmpp_conn_release(bctx->conn);
 	xmpp_ctx_free(bctx->ctx);
 	xmpp_shutdown();
 
-
-	unlink(bctx->in_fifo);
-	/* unlink(bctx->out_fifo); */
+	del_fifos(bctx);
 
 	return 0;
 }
@@ -289,15 +538,16 @@ start_bot(bot_ctx_t *usr)
 void
 stop_bot(int signal)
 {
-	static int shutdown = 0;
 	if (!running_bot)
 		exit(0);
 
-	if (shutdown) {
+	if (running_bot->quit) {
 		const char *sigstr = "SIGNAL";
-		if (signal == SIGTERM)
+		if (signal == 2)
+			sigstr = "SIGINT";
+		if (signal == 15)
 			sigstr = "SIGTERM";
-		else if (signal == SIGQUIT)
+		else if (signal == 3)
 			sigstr = "SIGQUIT";
 
 		fprintf(stderr,
@@ -305,6 +555,8 @@ stop_bot(int signal)
 			sigstr, signal);
 		exit(1);
 	}
+
+	running_bot->quit = 1;
 
 	fprintf(stderr,
 		"\nRECEIVED SIGINT (%d), shutting down...\n",
@@ -315,7 +567,7 @@ stop_bot(int signal)
 	xmpp_conn_t *conn = bctx->conn;
 
 	char muc_jid_buf[REGSTR_MAX];
-	// TODO: send presence to server
+
 	xmpp_stanza_t *presence = xmpp_presence_new(ctx);
 	xmpp_stanza_set_id(presence, bctx->jid);
 	xmpp_stanza_set_type(presence, "unavailable");
@@ -325,7 +577,4 @@ stop_bot(int signal)
 	xmpp_stanza_set_to(presence, muc_jid_buf);
 	xmpp_send(conn, presence);
 	xmpp_stanza_release(presence);
-
-	bctx->part = 1;
-	shutdown = 1;
 }

@@ -110,7 +110,7 @@ on_disco_reply( xmpp_conn_t * const conn,
 		child = xmpp_stanza_get_next(child);
 	} while (child);
 
-	xmpp_stop(ctx);
+	xmpp_disconnect(conn);
 	
 	return 0;
 }
@@ -118,9 +118,9 @@ on_disco_reply( xmpp_conn_t * const conn,
 static void
 request_disco_info(xmpp_conn_t *conn, xmpp_ctx_t *ctx, const char *target)
 {
-	char disco_id_str[32];
 	xmpp_stanza_t *iq = xmpp_stanza_new(ctx);
 	xmpp_stanza_t *query = xmpp_stanza_new(ctx);
+	char *idstr = xmpp_uuid_gen(ctx);
 
 	if (iq == NULL || query == NULL) {
 		fprintf(stderr, "Could not allocate disco stanza\n");
@@ -131,23 +131,18 @@ request_disco_info(xmpp_conn_t *conn, xmpp_ctx_t *ctx, const char *target)
 		return;
 	}
 
-#ifdef __OpenBSD__
-	snprintf(disco_id_str, 32, "disco1-%08u", arc4random());
-#else
-	snprintf(disco_id_str, 32, "disco1-%08u", rand());
-#endif
-
 	xmpp_stanza_set_name(iq, "iq");
 	xmpp_stanza_set_type(iq, "get");
-	xmpp_stanza_set_id(iq, disco_id_str);
+	xmpp_stanza_set_id(iq, idstr);
 	xmpp_stanza_set_to(iq, target);
 	xmpp_stanza_set_name(query, "query");
 	xmpp_stanza_set_ns(query, XMPP_NS_DISCO_INFO);
 	xmpp_stanza_add_child(iq, query);
-	xmpp_id_handler_add(conn, on_disco_reply, disco_id_str, ctx);
+	xmpp_id_handler_add(conn, on_disco_reply, idstr, ctx);
 	xmpp_send(conn, iq);
 	xmpp_stanza_release(query);
 	xmpp_stanza_release(iq);
+	xmpp_free(ctx, idstr);
 }
 
 static void
