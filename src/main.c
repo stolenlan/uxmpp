@@ -90,7 +90,7 @@ main(int argc, char *argv[])
 			snprintf(password, REGSTR_MAX, "%s", optarg);
 			break;
 		case 'v':
-			printf("%u.%u.%u\n", VER_MAJ, VER_MIN, VER_PNT);
+			printf("%s\n", VERSION);
 			return 0;
 		default:
 			printf(USAGE_STR, __progname);
@@ -101,20 +101,22 @@ main(int argc, char *argv[])
 	memset(cwd, '\0', PATH_MAX);
 	getcwd(cwd, PATH_MAX);
 
-// #pragma GCC diagnostic push
-// #pragma GCC diagnostic ignored "-Wformat-truncation"
-// 	/* If the combined path is truncated, we may have an issue */
-// 	if (!strlen(bot_in_fifo) && strlen(muc)) {
-// 		snprintf(bot_in_fifo, PATH_MAX, "%s/%s-%s", 
-// 			cwd, "to", muc);
-// 	}
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
+	/* If the combined path is truncated, we may have an issue */
+	if (f_fifos && !strlen(bot_out_fifo) && !strlen(bot_in_fifo)) {
+		if (!strlen(bot_in_fifo) && strlen(muc)) {
+			snprintf(bot_in_fifo, PATH_MAX, "%s/%s-%s", 
+				cwd, "to", muc);
+		}
 
-// 	if (!strlen(bot_out_fifo) && strlen(muc)) {
-// 		snprintf(bot_out_fifo, PATH_MAX, "%s/%s-%s", 
-// 			cwd, "from", muc);
-// 	}
-// 	/* TODO: use access() to determine if the path is valid first */
-// #pragma GCC diagnostic pop
+		if (!strlen(bot_out_fifo) && strlen(muc)) {
+			snprintf(bot_out_fifo, PATH_MAX, "%s/%s-%s", 
+				cwd, "from", muc);
+		}
+	}
+	/* TODO: use access() to determine if the path is valid first */
+#pragma GCC diagnostic pop
 
 #ifdef __OpenBSD__
 	if (strlen(bot_in_fifo) && unveil(bot_in_fifo, "rwc") < 0)

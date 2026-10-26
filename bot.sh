@@ -21,9 +21,9 @@ function handle_message {
 	fi
 
 	# These two examples, mirror the defaults of the bot
-	echo "${BODY}" | grep -qE "^test$" && {
-		echo "${NICK}: ACK"
-		echo -e "${NICK}: ACK\nI hope your test was successful" \
+	echo "${BODY}" | grep -qE "^ping$" && {
+		echo "${NICK}: PONG"
+		echo -e "${NICK}: PONG\nI hope your test was successful" \
 			> $DEST_FIFO
 	}
 
@@ -34,14 +34,16 @@ function handle_message {
 }
 
 
+#src/uxmpp -m sinelabs@conference.xmpp.sinelabs.ca -n Abott -df mucbot
+
 # Iterate over all connected rooms
 while [ true ]; do
 	for ROOM_FROM in $(ls from-* 2> /dev/null); do
 		if [ -p $ROOM_FROM ]; then
-			IFS=$'\01'
+			IFS="\01"
 			for MESSAGE in $(cat $ROOM_FROM); do
 				echo "$MESSAGE"
-				# handle_message "${MESSAGE}" "${ROOM_FROM}"
+				handle_message "${MESSAGE}" "${ROOM_FROM}"
 			done
 			IFS=$NIFS
 		else

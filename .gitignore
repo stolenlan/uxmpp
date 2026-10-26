@@ -2,3 +2,5 @@ uxmpp
 *.o
 *.core
 ktrace.out
+src/xep-0115-ver-gen
+src/xep-0115-ver.h

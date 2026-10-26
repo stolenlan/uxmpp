@@ -22,9 +22,11 @@
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
+#include <ctype.h>
 #include <pthread.h>
 
 #include "uxmpp.h"
+#include "xep-0115-ver.h"
 #include "bot.h"
 
 
@@ -49,10 +51,27 @@ send_muc_message(xmpp_conn_t *const conn, const char *text,
 	return 0;
 }
 
+
+static int
+send_direct_message(const char *to_jid, const char *text,
+	void *const userdata)
+{
+	bot_ctx_t *bctx = userdata;
+	xmpp_ctx_t *ctx = bctx->ctx;
+	xmpp_conn_t *conn = bctx->conn;
+
+	xmpp_stanza_t *msg = xmpp_message_new(ctx,
+		"chat", to_jid, NULL);
+	xmpp_message_set_body(msg, text);
+	xmpp_send(conn, msg);
+	xmpp_stanza_release(msg);
+	return 0;
+}
+
 static char *
 iq_time(void)
 {
-	static char xmpp_time[2048] = {0};
+	static char xmpp_time[1024] = {0};
 
 	time_t ct = time(NULL);
 	struct tm *lt_tm = localtime(&ct);
@@ -161,7 +180,6 @@ cb_iq(xmpp_conn_t *const conn, xmpp_stanza_t *const stanza,
 
 	if ((query = xmpp_stanza_get_child_by_ns(stanza, "urn:xmpp:time")) 
 		!= NULL) {
-
 		/* XEP-0092 Software Version */
 		snprintf(buf, 2048,
 		"<iq type='result' to='%s' from='%s' id='%s'>"
@@ -176,25 +194,26 @@ cb_iq(xmpp_conn_t *const conn, xmpp_stanza_t *const stanza,
 		!= NULL)
 		/* XEP-0092 Software Version */
 		snprintf(buf, 2048,
-		"<iq type='result' to='%s' from='%s' id='%s'>"
+		"<iq type='result' id='%s' to='%s' from='%s'>"
 		"<query xmlns='jabber:iq:version'>"
 		"<name>uxmpp</name>"
-		"<version>%d.%d.%d</version>"
+		"<version>%s.%s.%s</version>"
 		"<os>Win98SE</os>"
 		"</query>"
 		"</iq>",
+		id,
 		xmpp_jid_new(ctx, from_node, from_domain, from_resource),
 		xmpp_jid_new(ctx, to_node, to_domain, to_resource),
-		id, VER_MAJ, VER_MIN, VER_PNT);
+		VER_MAJ, VER_MIN, VER_PNT);
 		
 
 	if ((query = xmpp_stanza_get_child_by_ns(stanza,
 			"http://jabber.org/protocol/disco#info")) != NULL)
 		snprintf(buf, 2048,
-		"<iq from=\"%s\" id=\"%s\" to=\"%s\" type='result'>"
+		"<iq id=\"%s\" from=\"%s\" to=\"%s\" type='result'>"
 		"<query xmlns='http://jabber.org/protocol/disco#info'"
 		" node='https://sinelabs.ca/uxmpp/mucbot#" XEP_0115_VER "'>"
-		"<identity category='client' name='uxmpp %d.%d.%d' type='pc'/>"
+		"<identity category='client' name='uxmpp %s.%s.%s' type='pc'/>"
 		"<feature var='http://jabber.org/protocol/caps'/>"
 		"<feature var='http://jabber.org/protocol/disco#info'/>"
 		"<feature var='http://jabber.org/protocol/disco#items'/>"
@@ -203,19 +222,19 @@ cb_iq(xmpp_conn_t *const conn, xmpp_stanza_t *const stanza,
 		"<feature var='urn:xmpp:time'/>"
 		"</query>"
 		"</iq>",
-		xmpp_jid_new(ctx, to_node, to_domain, to_resource),
 		id,
+		xmpp_jid_new(ctx, to_node, to_domain, to_resource),
 		xmpp_jid_new(ctx, from_node, from_domain, from_resource),
 		VER_MAJ, VER_MIN, VER_PNT);
 
 	if ((query = xmpp_stanza_get_child_by_ns(stanza,
 		"http://jabber.org/protocol/disco#items")) != NULL)
 		snprintf(buf, 2048,
-		"<iq from=\"%s\" id=\"%s\" to=\"%s\" type='result'>"
+		"<iq id=\"%s\" from=\"%s\" to=\"%s\" type='result'>"
 		"<query xmlns='http://jabber.org/protocol/disco#items'/>"
 		"</iq>",
-		xmpp_jid_new(ctx, to_node, to_domain, to_resource),
 		id,
+		xmpp_jid_new(ctx, to_node, to_domain, to_resource),
 		xmpp_jid_new(ctx, from_node, from_domain, from_resource));
 
 	if (strlen(buf)) {
@@ -298,7 +317,19 @@ cb_message(xmpp_conn_t *const conn, xmpp_stanza_t *const stanza,
 		p = from; /* Seek the pointer up through the slash */
 		for (c = *p; p && c != '/'; c = *p++);
 
-		if (strncmp(body, "test", strlen(body)) == 0) {
+		char bbuf[1024];
+		memset(bbuf, '\0', 1024);
+		for (size_t i = 0; i < strlen(body) && i < 1023; i++)
+			bbuf[i] = tolower(body[i]);
+
+		if (strncmp(bbuf, "test", strlen(bbuf)) == 0) {
+			memset(buf, '\0', sizeof(buf));
+			snprintf(buf, sizeof(buf), "%s: %s", p,
+				"ACK! I trust your test was successful.");
+			send_muc_message(conn, buf, userdata);
+		}
+
+		if (strncmp(bbuf, "test", strlen(bbuf)) == 0) {
 			memset(buf, '\0', sizeof(buf));
 			snprintf(buf, sizeof(buf), "%s: %s", p,
 				"ACK! I trust your test was successful.");
@@ -309,16 +340,16 @@ cb_message(xmpp_conn_t *const conn, xmpp_stanza_t *const stanza,
 		if (strncmp(body, bctx->nick, strlen(bctx->nick)) == 0
 			&& (c == ':' || c == ',')) {
 			memset(buf, '\0', sizeof(buf));
-			snprintf(buf, sizeof(buf), "%s: %s", p, DEFAULT_REPLY);
-			snprintf(buf, sizeof(buf), "%s\nsee: !%s help",
-				buf, bctx->nick);
+			snprintf(buf, sizeof(buf), "%s: %s\nsee: !%s help",
+				p, DEFAULT_REPLY, bctx->nick);
 			send_muc_message(conn, buf, userdata);
 		}
 
 		if (strlen(bctx->out_fifo)) {
 			int fd = open(bctx->out_fifo, O_WRONLY);
 			if (fd == -1) {
-				fprintf(stderr, "Error opening %s\n", bctx->out_fifo);
+				fprintf(stderr, "Error opening %s\n",
+					bctx->out_fifo);
 				return 1;
 			}
 
@@ -339,13 +370,10 @@ cb_message(xmpp_conn_t *const conn, xmpp_stanza_t *const stanza,
 		fprintf(stderr, "%s: ", from);
 		fprintf(stderr, "%s\n", body);
 
-		// memset(buf, '\0', sizeof(buf));
-		// snprintf(buf, sizeof(buf), "%s: %s", p, DEFAULT_REPLY);
-		// snprintf(buf, sizeof(buf), "%s\nsee: !%s help", 
-		// 	buf, bctx->nick);
+		memset(buf, '\0', sizeof(buf));
+		snprintf(buf, sizeof(buf), "I am but a simple bot.");
 		
-		// TODO create send_direct_message()
-		// send_muc_message(conn, buf, userdata);
+		send_direct_message(from, buf, userdata);
 
 		xmpp_free(ctx, body);
 	} else {
@@ -538,17 +566,20 @@ start_bot(bot_ctx_t *usr)
 void
 stop_bot(int signal)
 {
+	const char *sigstr = "SIGNAL";
+
 	if (!running_bot)
 		exit(0);
 
+	if (signal == 2)
+		sigstr = "SIGINT";
+	if (signal == 15)
+		sigstr = "SIGTERM";
+	else if (signal == 3)
+		sigstr = "SIGQUIT";
+
 	if (running_bot->quit) {
-		const char *sigstr = "SIGNAL";
-		if (signal == 2)
-			sigstr = "SIGINT";
-		if (signal == 15)
-			sigstr = "SIGTERM";
-		else if (signal == 3)
-			sigstr = "SIGQUIT";
+		
 
 		fprintf(stderr,
 			"\nRECEIVED %s (%d), for the 2nd time: killing...",
@@ -559,8 +590,8 @@ stop_bot(int signal)
 	running_bot->quit = 1;
 
 	fprintf(stderr,
-		"\nRECEIVED SIGINT (%d), shutting down...\n",
-		signal);
+		"\nRECEIVED %s (%d), shutting down...\n",
+		sigstr, signal);
 
 	bot_ctx_t *bctx = running_bot;
 	xmpp_ctx_t *ctx = bctx->ctx;
