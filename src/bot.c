@@ -821,10 +821,10 @@ on_connect(xmpp_conn_t * const conn,
 		xmpp_stanza_set_to(presence, muc_jid_buf);
 
 		xmpp_stanza_t *c = xmpp_stanza_new_from_string(ctx,
-			"<c xmlns='http://jabber.org/protocol/caps' "
-     				"hash='sha-1' "
-     				"node='https://sinelabs.ca/uxmpp/mucbot' "
-     				"ver='" XEP_0115_VER "'/>");
+			"<c xmlns='http://jabber.org/protocol/caps'"
+				" hash='sha-1'"
+				" node='https://github.com/stolenlan/uxmpp#bot'"
+				" ver='" XEP_0115_VER "'/>");
 		xmpp_stanza_add_child(presence, c);
 		xmpp_stanza_release(c);
 
