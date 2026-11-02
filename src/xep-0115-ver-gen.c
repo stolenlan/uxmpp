@@ -5,10 +5,20 @@
 /* Version info */
 #include "uxmpp.h"
 
-/* TODO: Parse the actual disco#info, and generate this 
-         Currently, any changes in the disco response will require changes
-         here. */
-#define XEP_0115_S "client/pc//uxmpp " VERSION "<"\
+/**
+ * TODO: Parse the actual disco#info, and generate this 
+ * Currently, any changes in the disco response will require changes
+ * 
+ * The resulting program is used during the build process only, if it
+ * fails to produce the target header file the program must return > 0 so
+ * that the build process may be halted by make.
+ * 
+ * NOTE: -lcrypto is only required for building, the uxmpp binary uses
+ * none of it's routines.
+ * 
+ **/
+#define XEP_0115_S \
+"client/pc/en/uxmpp " VERSION "<"\
 "http://jabber.org/protocol/caps<"\
 "http://jabber.org/protocol/disco#info<"\
 "http://jabber.org/protocol/disco#items<"\
@@ -20,6 +30,7 @@
 "#ifndef _XEP115VER_H\n"\
 "#define _XEP115VER_H 1\n"\
 "\n"\
+"#define XEP_0115_STR \"%s\"\n"\
 "#define XEP_0115_VER \"%s\"\n"\
 "\n"\
 "#endif\n"
@@ -56,7 +67,7 @@ sha1(const char *input, const char *filename)
 		perror(NULL);
 		return 1;
 	}
-	size_t nbw = (size_t)fprintf(fp, HDR_TPL, base64);
+	size_t nbw = (size_t)fprintf(fp, HDR_TPL, XEP_0115_S, base64);
 	fclose(fp);
 
 	if (nbw <= 0) {

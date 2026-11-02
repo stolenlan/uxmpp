@@ -22,41 +22,92 @@
 .Cm Generic Form:
 .Nm
 .Op Fl d
-.Op Fl h Ar host_jid
+.Op Fl f
+.Op Fl i Ar in_fifo
+.Op Fl j Ar user_jid
+.Op Fl m
+.Op Fl n Ar nickname
+.Op Fl o Ar out_fifo
 .Op Fl p Ar password
-.Op Fl u Ar user_jid
+.Op Fl t Ar target_jid
+.Op Fl u Ar u_seconds
 .Op Fl v
-.Ar command
+.Cm COMMAND
 .Pp
 .Nm
 .Op Fl d
-.Fl h Ar host_jid
+.Op Fl j Ar user_jid
 .Op Fl p Ar password
-.Op Fl u Ar user_jid
+.Fl t Ar target_jid
 .Cm disco
 .Nm
 .Op Fl d
-.Fl m Ar muc_jid
-.Op Fl u Ar user_jid
+.Op Fl i Ar in_fifo
+.Op Fl j Ar user_jid
+.Op Fl m
+.Op Fl n Ar nickname
+.Op Fl o Ar out_fifo
+.Op Fl p Ar password
+.Fl t Ar target_jid
+.Op Fl u Ar u_seconds
 .Cm bot
+.Nm
+.Op Fl d
+.Op Fl j Ar user_jid
+.Op Fl p Ar password
+.Fl t Ar target_jid
+.Cm ping
 .Sh DESCRIPTION
 .Nm
 consists of a set of tools for querying, testing, configuring, 
-troubleshooting, and generally using XMPP services in the UNIX way.
+troubleshooting, and generally using XMPP services in a UNIX way.
+Many functions and utilities require an existing c2s
+connection in order to facilitate tasks. The
+.Fl j ,
+or it's corresponding environment variable
+.Ev XMPP_JID
+are thus typically required.
 .Pp
-The options are as follows:
+.Ss COMMAND must be one of:
+.Bl -tag -width Ds
+.It Cm disco
+Perform a host disco(very) on
+.Ar target_jid
+using a
+.Ar user_jid
+corresponding to an active user JID of the target host or of another provider
+that may federate with the target host.
+.It Cm bot
+Connect to a given provider, join a MUC, and handle stanzas. Optionally
+if one of
+.Fl f ,
+.Fl i ,
+and or
+.Fl o
+is given, fifo's corresponding to input and output
+of the applicable bot are created.  These may be used to script bot
+behavior using any language or tools desired. NOTE: if an
+.Fl o Ar output_fifo
+is specified the bot will hang, and not process stanzas until the the
+applicable
+.Ar output_fifo
+is read.
+.It Cm ping
+Send an xmpp:ping to the applicable
+.Ar target_jid .
+.El
+.Ss The options are as follows:
 .Bl -tag -width Ds
 .It Fl d
 Enable debug messages to stderr
-.It Fl h Ar host_jid
-Provide a target host/JID for a given function. For example:
-.Cm xmpp.example.com .
-.It Fl p Ar password
-Specify a password. You should know it is widely accepted as a bad idea to
-provide credentials in this manner; I would certainly raise an eyebrow if a
-person used this option corresponding to a JID with privileges. That said, you
-do you.
-.It Fl u Ar user_jid
+.It Fl f
+Enable in/out FIFOs for the applicable bot's connection.
+.It Fl i Ar input_path
+Specify an input path. If used with the
+.Cm bot
+command, data written to the specified fifo will be read by uxmpp and
+passed on to the running bot.
+.It Fl j Ar user_jid
 Specify a user JID. Certain actions, such as the
 .Cm disco
 command, require s2s connections that are made on behalf of the
@@ -68,27 +119,36 @@ you like to live dangerously however, you may do so by setting the
 environment variable, or by supplying the password via the
 .Fl p
 option.
+.It Fl m
+If used with the
+.Cm bot
+command, enables default responses.
+.It Fl n Ar nickname
+Specify a nickname to use when joining a channel, default is the node of
+the corresponding
+.Ar user_jid .
+.It Fl o Ar output_path
+Specify an output path. If used with the
+.Cm bot
+command, this specifies the fifo that messages from the applicable MUC
+will be written to.
+.It Fl p Ar password
+Specify a password. You should know it is widely accepted as a bad idea to
+provide credentials in this manner; I would certainly raise an eyebrow if a
+person used this option corresponding to a JID with privileges. That said, you
+do you.
+.It Fl t Ar target_jid
+Provide a target host/JID for a given function. For example:
+.Cm xmpp.example.com .
+.It Fl u Ar u_seconds
+Specify a value in microseconds. The
+.Cm bot
+command for example periodically pings the server to keep the corresponding
+TCP connection alive, this value is used as the ping interval.
 .It Fl v
-Print version and exit
-.El
-.Pp
-Other than
-.Fl v 
-One of the following
-.Cm Command Modes
-are required in order to actually do anything 
-.Qq useful . 
-.Bl -tag -width Ds
-.It Cm disco
-Perform a host disco(very) on
-.Ar host_jid
-using a
-.Ar user_jid
-corresponding to an active user JID of the target host or of another provider
-that may federate with the target host.
-.It Cm bot
-Connect to a given provider, join a MUC, and handle stanzas.
-.El
+Print version and exit. Use
+.Fl d
+to show more detail.
 .El
 .Sh ENVIRONMENT
 .Bl -tag -width Ds
@@ -103,9 +163,9 @@ If set this value will be used during authentication.
 .Pp
 CAUTION:
 It is exceedingly easy for other programs running in your environment to read 
-this variable as such, like the
+this variable thus: like the
 .Fl p
-option, it should only be used in special cases.
+option, this should only be used in special cases.
 .El
 .Sh EXIT STATUS
 .Ex -std

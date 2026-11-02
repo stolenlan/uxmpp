@@ -1,4 +1,5 @@
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
@@ -24,6 +25,50 @@ check_outpath(const char *path)
 		return 1;
 
 	return 0;
+}
+
+int
+get_fortune(char *fortune_out, int max)
+{
+	// Create the pipe to send to sendmail's stdin
+	int pfd[2];
+	if(pipe(pfd) == -1) {
+		printf("Error creating pipe\n");
+		return 0;
+	}
+
+	int pid = fork();
+	if(pid == -1) {
+		fprintf(stderr, "Error while forking around\n");
+		return 0;
+	}
+
+	if(pid == 0) { // Child
+		close(pfd[0]);
+		char *args[] = {
+			"fortune", 
+			"-l",
+			NULL
+		};
+
+		dup2(pfd[1], STDOUT_FILENO);
+		execve("/usr/games/fortune", args, NULL);
+		// If execve fails for some reason
+		close(pfd[1]);
+		return 1;
+	}
+	
+	close(pfd[1]); // We don't need to listen
+	char buf[max];
+	memset(buf, '\0', max);
+	read(pfd[0], buf, max-1);
+	close(pfd[0]); // Finally window the pipe
+	int status;
+	waitpid(pid, &status, 0);
+
+	snprintf(fortune_out, max, "%s", buf);
+	
+	return status;
 }
 
 int
@@ -64,15 +109,13 @@ get_jid_credentials(char *jid, char *password)
 
 int  jid_get_local(char out[REGSTR_MAX], const char *jid)
 {
-	const char *ip = jid;
-	char *op = out;
-	int len;
+	xmpp_ctx_t *ctx = xmpp_ctx_new(NULL, NULL);
+	const char *node = xmpp_jid_node(ctx, jid);
+	snprintf(out, REGSTR_MAX, "%s", node);
+	xmpp_free(ctx, (void *)node);
+	xmpp_ctx_free(ctx);
 
-	for (len = 0; *ip != '\0' && *ip != '@'; ip++, len++) {
-		*op++ = *ip;
-	}
-
-	return len;
+	return (int)strlen(out);
 }
 
 int

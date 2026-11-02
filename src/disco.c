@@ -25,11 +25,8 @@
 #include "uxmpp.h"
 #include "disco.h"
 
-const char *disco_host;
-
 static char *
-addr_label(const char *attribute)
-{
+addr_label(const char *attribute) {
 	static char abuf[256] = {0};
 	char *abuf_p = abuf;
 	memset(abuf, '\0', 256);
@@ -42,22 +39,60 @@ addr_label(const char *attribute)
 	return attr_p;
 }
 
-static  void
-display_disco_info(xmpp_stanza_t * const child)
-{
+void
+display_disco_info(disco_ctx_t *dctx, xmpp_stanza_t * const child) {
+
 	static const char *address_types[] = {XEP_0157_ADDRESSES, NULL};
 	static const int colw = 12;
+	char buf[DISCO_MAX_RESULT];
+	size_t buflen, remsz;
+
+	if (child == NULL && strlen(dctx->result)) {
+		snprintf(buf, DISCO_MAX_RESULT, "```\n");
+		buflen = strlen(buf);
+		remsz = DISCO_MAX_RESULT-(dctx->p-dctx->result);
+		snprintf(dctx->p, remsz, "%s", buf);
+		dctx->p += buflen;
+		return;
+	}
+
 	const char *name = xmpp_stanza_get_name(child);
-
 	xmpp_ctx_t *ctx = xmpp_stanza_get_context(child);
-
 	int n_atypes = 0;
 
 	for (n_atypes = 0; address_types[n_atypes] != NULL; n_atypes++);
 
+	if (dctx->result && strlen(dctx->result) == 0) {
+		char *htpl = "*disco result: %s*\n```\n";
+		snprintf(buf, DISCO_MAX_RESULT, htpl, dctx->target);
+		buflen = strlen(buf);
+		remsz = DISCO_MAX_RESULT-(dctx->p-dctx->result);
+		snprintf(dctx->p, remsz, "%s", buf);
+		dctx->p += buflen;
+	}
+
 	if (strncmp(name, "feature", strlen(name)) == 0) {
 		const char *var = xmpp_stanza_get_attribute(child, "var");
-		printf("%*s: %s\n", colw, "FEATURE", var);
+		snprintf(buf, DISCO_MAX_RESULT, "%*s: %s\n",
+			colw, "FEATURE", var);
+		buflen = strlen(buf);
+		remsz = DISCO_MAX_RESULT-(dctx->p-dctx->result);
+		snprintf(dctx->p, remsz, "%s", buf);
+		dctx->p += buflen;
+	}
+
+	if (strncmp(name, "identity", strlen(name)) == 0) {
+		const char *cat = xmpp_stanza_get_attribute(child, "category");
+		if (cat && strncmp(cat, "server", strlen(cat)) == 0) {
+			const char *server_name = xmpp_stanza_get_attribute(
+				child, "name");
+			snprintf(buf, DISCO_MAX_RESULT, "%*s: %s\n",
+				colw, "IDENTITY", server_name);
+			buflen = strlen(buf);
+			remsz = DISCO_MAX_RESULT-(dctx->p-dctx->result);
+			snprintf(dctx->p, remsz, "%s", buf);
+			dctx->p += buflen;
+		}
 	}
 
 	if (strncmp(name, "x", strlen(name)) == 0) {
@@ -82,7 +117,13 @@ display_disco_info(xmpp_stanza_t * const child)
 				for (; value; value =
 					xmpp_stanza_get_next(value)) {
 					char *d = xmpp_stanza_get_text(value);
-					printf("%*s: %s\n", colw, albl, d);
+					snprintf(buf, DISCO_MAX_RESULT, "%*s: %s\n",
+						colw, albl, d);
+					buflen = strlen(buf);
+					remsz = DISCO_MAX_RESULT-(dctx->p-dctx->result);
+					snprintf(dctx->p, remsz, "%s", buf);
+					dctx->p += buflen;
+
 					xmpp_free(ctx, d);
 				}
 			}
@@ -91,10 +132,11 @@ display_disco_info(xmpp_stanza_t * const child)
 }
 
 static int
-on_disco_reply( xmpp_conn_t * const conn,
-	xmpp_stanza_t * const stanza,void * const userdata)
-{
-	xmpp_ctx_t *ctx = userdata;
+on_disco_reply(xmpp_conn_t * const conn,
+	xmpp_stanza_t * const stanza,
+	void * const userdata) {
+	disco_ctx_t *dctx = userdata;
+	xmpp_ctx_t *ctx = xmpp_conn_get_context(conn);
 	const char *type = xmpp_stanza_get_type(stanza);
 	(void)conn; /* Silence compiler! */
 	if (type != NULL && strcmp(type, "error") == 0) {
@@ -102,22 +144,28 @@ on_disco_reply( xmpp_conn_t * const conn,
 		xmpp_stop(ctx);
 		return 0;
 	}
+
 	xmpp_stanza_t *query = xmpp_stanza_get_child_by_name_and_ns(stanza,
 		"query", XMPP_NS_DISCO_INFO);
+
 	xmpp_stanza_t *child = xmpp_stanza_get_children(query);
 	do {
-		display_disco_info(child);
+		display_disco_info(dctx, child);
 		child = xmpp_stanza_get_next(child);
 	} while (child);
 
+	display_disco_info(dctx, NULL); /* Append markdown formatting */
+
+	printf("%s", dctx->result);
 	xmpp_disconnect(conn);
-	
+
 	return 0;
 }
 
-static void
-request_disco_info(xmpp_conn_t *conn, xmpp_ctx_t *ctx, const char *target)
-{
+void
+request_disco_info(disco_ctx_t *dctx, xmpp_handler hdl) {
+	xmpp_conn_t *conn = dctx->conn;
+	xmpp_ctx_t *ctx = xmpp_conn_get_context(conn);
 	xmpp_stanza_t *iq = xmpp_stanza_new(ctx);
 	xmpp_stanza_t *query = xmpp_stanza_new(ctx);
 	char *idstr = xmpp_uuid_gen(ctx);
@@ -134,11 +182,11 @@ request_disco_info(xmpp_conn_t *conn, xmpp_ctx_t *ctx, const char *target)
 	xmpp_stanza_set_name(iq, "iq");
 	xmpp_stanza_set_type(iq, "get");
 	xmpp_stanza_set_id(iq, idstr);
-	xmpp_stanza_set_to(iq, target);
+	xmpp_stanza_set_to(iq, dctx->target);
 	xmpp_stanza_set_name(query, "query");
 	xmpp_stanza_set_ns(query, XMPP_NS_DISCO_INFO);
 	xmpp_stanza_add_child(iq, query);
-	xmpp_id_handler_add(conn, on_disco_reply, idstr, ctx);
+	xmpp_id_handler_add(conn, hdl, idstr, dctx);
 	xmpp_send(conn, iq);
 	xmpp_stanza_release(query);
 	xmpp_stanza_release(iq);
@@ -150,10 +198,10 @@ on_connect(xmpp_conn_t * const conn,
 	xmpp_conn_event_t status,
 	int error, 
 	xmpp_stream_error_t *stream_error, 
-	void * const userdata)
-{
+	void * const userdata) {
 	static int connected = 0;
-	xmpp_ctx_t *ctx = userdata;
+	disco_ctx_t *dctx = (disco_ctx_t *)userdata;
+	xmpp_ctx_t *ctx = xmpp_conn_get_context(conn);
 
 	if (stream_error) {
 		fprintf(stderr, "Connection error: %s\n",
@@ -163,7 +211,7 @@ on_connect(xmpp_conn_t * const conn,
 
 	if (status == XMPP_CONN_CONNECT) {
 		connected = 1;
-		request_disco_info(conn, ctx, disco_host);
+		request_disco_info(dctx, on_disco_reply);
 	} else if (status == XMPP_CONN_FAIL) {
 		fprintf(stderr, "Connection or authentication "
 			"failed (error %d).\n", error);
@@ -174,15 +222,13 @@ on_connect(xmpp_conn_t * const conn,
 				"failed.\n", xmpp_conn_get_jid(conn));
 		xmpp_stop(ctx);
 	}
-
 }
 
 int
-host_disco(const char *jid, const char *password, const char *host)
-{
-	disco_host = host;
-	xmpp_ctx_t *ctx;
-	xmpp_conn_t *conn;
+disco_out(const char *jid, const char *password, const char *host) {
+	disco_ctx_t dctx;
+	xmpp_ctx_t *ctx = NULL;
+	xmpp_conn_t *conn = NULL;
 
 	if (jid == NULL || password == NULL) {
 		fprintf(stderr, "Invalid or missing credentials.\n");
@@ -214,10 +260,23 @@ host_disco(const char *jid, const char *password, const char *host)
 		return 1;
 	}
 
+
+	dctx.conn = conn;
+	snprintf(dctx.target, REGSTR_MAX, "%s", host);
+	dctx.result = malloc(DISCO_MAX_RESULT);
+	memset(dctx.result, '\0', DISCO_MAX_RESULT);
+	if (!dctx.result) {
+		fprintf(stderr, "Unable to allocate disco result memory.\n");
+		perror(NULL);
+		return 1;
+	}
+
+	dctx.p = dctx.result;
+
 	xmpp_conn_set_jid(conn, jid);
 	xmpp_conn_set_pass(conn, password);
 
-	if (xmpp_connect_client(conn, NULL, 0, on_connect, ctx) != 0) 
+	if (xmpp_connect_client(conn, NULL, 0, on_connect, &dctx) != 0) 
 		fprintf(stderr, "Could not start the connection.\n");
 	else
 		xmpp_run(ctx);
@@ -225,6 +284,8 @@ host_disco(const char *jid, const char *password, const char *host)
 	xmpp_conn_release(conn);
 	xmpp_ctx_free(ctx);
 	xmpp_shutdown();
+
+	free(dctx.result);
 
 	return 0;
 }

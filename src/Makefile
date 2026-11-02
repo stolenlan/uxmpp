@@ -16,11 +16,15 @@ PREFIX?=/usr/local
 MANPREFIX=$(PREFIX)
 
 _CFLAGS=-O2 -fstack-protector-strong -fdiagnostics-color -Wall -Wextra \
+	-std=c17 \
 	-Wpedantic -Wshadow -D_DEFAULT_SOURCE -I/usr/local/include $(CFLAGS)
 LDFLAGS=-L/usr/local/lib -lstrophe -lpthread
 
-OBJS=disco.o uxmpp.o bot.o ping.o
+OBJS=disco.o uxmpp.o bot.o ping.o util.o
 TGTS=uxmpp
+
+CLEAN=$(TGTS) *.o *.core ktrace.out \
+	xep-0115-ver.h xep-0115-ver-gen
 
 all: $(TGTS)
 
@@ -31,11 +35,13 @@ uxmpp.o: uxmpp.c uxmpp.h
 	$(CC) $(_CFLAGS) -c -o $@ uxmpp.c
 
 bot.o: xep-0115-ver.h bot.c bot.h
-
 	$(CC) $(_CFLAGS) -c -o $@ bot.c
 
 ping.o: ping.c ping.h
 	$(CC) $(_CFLAGS) -c -o $@ ping.c
+
+util.o: util.c util.h
+	$(CC) $(_CFLAGS) -c -o $@ util.c
 
 xep-0115-ver.h: xep-0115-ver-gen
 	@./xep-0115-ver-gen
@@ -45,9 +51,6 @@ xep-0115-ver-gen: uxmpp.h xep-0115-ver-gen.c
 
 uxmpp: $(OBJS) main.c
 	$(CC) $(_CFLAGS) -o $@ $(OBJS) main.c $(LDFLAGS)
-
-moot: moot.c
-	$(CC) $(_CFLAGS) -o $@ moot.c -lcrypto
 
 .PHONY: install
 install: all
@@ -62,8 +65,4 @@ test:
 
 .PHONY: clean
 clean:
-	@echo $(PREFIX)
-	rm -f *.o $(TGTS)
-	rm -f *.core *.stderr *.stdout
-	rm -f ktrace.out *.fifo
-	rm -f xep-0115-ver.h xep-0115-ver-gen
+	rm -f $(CLEAN)

@@ -13,6 +13,15 @@ other basic tools on a given UNIX system.
 CHANGELOG
 --------------------------------------------------------------------------
 
+Version 0.0.7
+
+- Move bot.sh to the scripts/ directory, and update it to start uxmpp, and
+  immediately begin reading the applicable fifos
+- Code cleaning, and memory verification pass
+- Many small changes, bot is now functional, and can perform a couple of
+  useful tasks.
+
+
 Version 0.0.6
 
 - Streamline the process of generating the XEP-0115 version string that
@@ -51,4 +60,4 @@ Version 0.0.1 - Initial Commit
 
 NOTES
 --------------------------------------------------------------------------
-
+TODO: UPDATE THE MANPAGE OPTIONS!!! Before I start to forget them...

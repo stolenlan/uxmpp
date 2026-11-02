@@ -16,7 +16,10 @@
 #ifndef _DISCO_H
 #define _DISCO_H 1
 
+#include <stdio.h>
 #include <strophe.h>
+
+#define DISCO_MAX_RESULT 8192
 
 #define XEP_0157_ADDRESSES \
 	"abuse-addresses",\
@@ -27,6 +30,21 @@
 	"status-addresses",\
 	"support-addresses"
 
-int 	host_disco(const char *jid, const char *_password, const char *host);
+typedef struct {
+	unsigned char init;
+	unsigned char active;
+	xmpp_conn_t *conn;
+	char target[REGSTR_MAX];
+	char *result;
+	char *p;
+	void *ref;
+} disco_ctx_t;
+
+void		display_disco_info(disco_ctx_t *dctx,
+			xmpp_stanza_t * const child);
+void		request_disco_info(disco_ctx_t *dctx, xmpp_handler hdl);
+int		disco_out(const char *jid,
+			const char *_password,
+			const char *host);
 
 #endif

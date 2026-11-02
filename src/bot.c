@@ -25,22 +25,38 @@
 #include <ctype.h>
 #include <pthread.h>
 
+#include "util.h"
 #include "uxmpp.h"
 #include "xep-0115-ver.h"
 #include "bot.h"
+#include "disco.h"
 
+#define MAX_N_BOTS 256
 
 #define DEFAULT_REPLY \
 "Sorry?\n"\
-"Just a dumb bot here, no LLMs, telemetry, or funny-business.\n"\
-"I do a few things, and do them well, but general chat is not one of them.\n"\
+"Just a dumb bot here, no LLMs, telemetry, or funny-business.\n"
 
-bot_ctx_t *running_bot = NULL;
+#define BOT_HELP_TMPL \
+"```\n"\
+"uxmpp %s: bot\n"\
+"XMPP Utilities for UNIX: in-band bot help\n\n"\
+"Commands (prefixed with `!%s'):\n"\
+"help          Show this help\n"\
+"disco  <jid>  Perform disco#info target\n"\
+"discor <jid>  Perform disco and return raw IQ\n"\
+"fortune       Display a classic fortune\n"\
+"ping   <jid>  Ping (urn:xmpp:ping) target jid\n"\
+"```"
+
+static bot_ctx_t *running_bot[MAX_N_BOTS];
+static int running_bots = 0;
+
 
 static int
-send_muc_message(xmpp_conn_t *const conn, const char *text,
-	void *const userdata)
-{
+send_muc_message(xmpp_conn_t *const conn,
+	const char *text,
+	void *const userdata) {
 	bot_ctx_t *bctx = userdata;
 	xmpp_ctx_t *ctx = xmpp_conn_get_context(conn);
 	xmpp_stanza_t *msg = xmpp_message_new(ctx,
@@ -51,11 +67,80 @@ send_muc_message(xmpp_conn_t *const conn, const char *text,
 	return 0;
 }
 
+static disco_ctx_t *
+disco_init(bot_ctx_t *bctx, const char *host) {
+	static disco_ctx_t dctx = {0};
+
+	memset(dctx.target, '\0', sizeof(dctx.target));
+	snprintf(dctx.target, sizeof(dctx.target), "%s", host);
+
+	if (dctx.init) {
+		memset(dctx.result, '\0', DISCO_MAX_RESULT);
+		return &dctx;
+	}
+
+	dctx.init = 1;
+	dctx.active = 0;
+	dctx.conn = bctx->conn;
+	dctx.ref = (void *)bctx;
+	dctx.result = malloc(DISCO_MAX_RESULT);
+	memset(dctx.result, '\0', DISCO_MAX_RESULT);
+	dctx.p = dctx.result;
+
+	return &dctx;
+}
 
 static int
-send_direct_message(const char *to_jid, const char *text,
-	void *const userdata)
-{
+bot_disco_reply(xmpp_conn_t * const conn,
+	xmpp_stanza_t *const stanza, void *const userdata) {
+
+	disco_ctx_t *dctx = userdata;
+	xmpp_ctx_t *ctx = xmpp_conn_get_context(conn);
+	const char *type = xmpp_stanza_get_type(stanza);
+
+	if (type != NULL && strcmp(type, "error") == 0) {
+
+		xmpp_stanza_t *stext = xmpp_stanza_get_child_by_name(stanza,
+			"error");
+		
+		xmpp_stanza_t *text = xmpp_stanza_get_child_by_name(stext,
+			"text");
+		const char *err_txt = xmpp_stanza_get_text(text);
+
+		fprintf(stderr, "Server returned an IQ error.\n");
+		char buf[1024];
+		snprintf(buf, 1024, "disco (%s) ERROR: %s\n",
+			dctx->target, err_txt);
+		send_muc_message(conn, buf, dctx->ref);
+
+		xmpp_free(ctx, (void *)err_txt);
+		free(dctx->result);
+		dctx->init = 0;
+		return 0;
+	}
+
+	xmpp_stanza_t *query = xmpp_stanza_get_child_by_name_and_ns(stanza,
+		"query", XMPP_NS_DISCO_INFO);
+
+	xmpp_stanza_t *child = xmpp_stanza_get_children(query);
+	do {
+		display_disco_info(dctx, child);
+		child = xmpp_stanza_get_next(child);
+	} while (child);
+
+	display_disco_info(dctx, NULL); /* Add any trailing formatting */
+	send_muc_message(conn, dctx->result, dctx->ref);
+	free(dctx->result);
+	dctx->init = 0;
+
+	return 0;
+}
+
+static int
+send_direct_message(const char *to_jid,
+	const char *text,
+	void *const userdata) {
+
 	bot_ctx_t *bctx = userdata;
 	xmpp_ctx_t *ctx = bctx->ctx;
 	xmpp_conn_t *conn = bctx->conn;
@@ -69,8 +154,7 @@ send_direct_message(const char *to_jid, const char *text,
 }
 
 static char *
-iq_time(void)
-{
+iq_time(void) {
 	static char xmpp_time[1024] = {0};
 
 	time_t ct = time(NULL);
@@ -105,8 +189,7 @@ iq_time(void)
 }
 
 static void *
-th_watch_fifo(void *userdata)
-{
+th_watch_fifo(void *userdata) {
 	bot_ctx_t *bctx = userdata;
 
 	if (bctx->quit || !strlen(bctx->in_fifo))
@@ -124,26 +207,117 @@ th_watch_fifo(void *userdata)
 	ssize_t buf_br;
 	if( (buf_br = read(fd, buf, 4095)) > 0) {
 		if (f_debug)
-			fprintf(stderr,
-			"Sending data received from %s to MUC %s\n",
-			bctx->in_fifo, bctx->muc);
+			fprintf(stderr,"RX: %s\n",bctx->in_fifo);
 		send_muc_message(bctx->conn, buf, userdata);
 	} else {
 		fprintf(stderr, "Error reading %s\n", bctx->in_fifo);
 	}
 
 	close(fd);
-	bctx->fifo_thread = 0;
-	if (pthread_create(&bctx->fifo_thread,
+	bctx->in_thread = 0;
+	if (pthread_create(&bctx->in_thread,
 		NULL, th_watch_fifo, userdata) == 0)
-		pthread_detach(bctx->fifo_thread);
+		pthread_detach(bctx->in_thread);
+
+	return NULL;
+}
+
+static void *
+th_watch_cmd_fifo(void *userdata) {
+	bot_ctx_t *bctx = userdata;
+
+	if (bctx->quit || !strlen(bctx->cmd_fifo))
+		return NULL;
+
+	int fd = open(bctx->cmd_fifo, O_RDONLY, 0);
+	if (fd == -1) {
+		if (f_debug)
+			fprintf(stderr, "Unable to open: %s\n",
+				bctx->cmd_fifo);
+		return NULL;
+	}
+
+	char buf[4096];
+	memset(buf, '\0', 4096);
+	ssize_t buf_br;
+	if( (buf_br = read(fd, buf, 4095)) > 0) {
+		if (f_debug)
+			fprintf(stderr, "Received: %s from %s\n",
+				buf, bctx->cmd_fifo);
+		if (strncmp("quit\n", buf, strlen(buf)) == 0) {
+			close(fd);
+			xmpp_disconnect(bctx->conn);
+			return NULL;
+		}
+	} else {
+		fprintf(stderr, "Error reading %s\n", bctx->in_fifo);
+	}
+
+	close(fd);
+	bctx->cmd_thread = 0;
+	if (pthread_create(&bctx->cmd_thread,
+		NULL, th_watch_cmd_fifo, userdata) == 0)
+		pthread_detach(bctx->cmd_thread);
 
 	return NULL;
 }
 
 static int
-cb_iq(xmpp_conn_t *const conn, xmpp_stanza_t *const stanza, 
-	void *const userdata) {
+cb_heartbeat_rx_ping(xmpp_conn_t *const conn,
+                     xmpp_stanza_t *const stanza,
+                     void *const userdata) {
+	(void)conn;
+	bot_ctx_t *bctx = (bot_ctx_t *)userdata;
+
+	const char *type = xmpp_stanza_get_type(stanza);
+	const char *domain = xmpp_jid_domain(bctx->ctx, bctx->jid);
+	
+	if (type != NULL && strcmp(type, "error") == 0) {
+		fprintf(stderr, "Ping returned an error!\n");
+	}
+	if (f_debug)
+		fprintf(stderr, "RX: PONG (%s)!\n", domain);
+
+	xmpp_free(bctx->ctx, (void *)domain);
+	return 0;
+}
+
+static int
+cb_heartbeat(xmpp_conn_t *const conn, void *userdata) {
+	(void)conn;
+	bot_ctx_t *bctx = (bot_ctx_t *)userdata;
+	xmpp_ctx_t *ctx = bctx->ctx;
+
+	char *cpid = xmpp_uuid_gen(ctx);
+	char *domain = xmpp_jid_domain(ctx, bctx->jid);
+	char buf[1024];
+	memset(buf, '\0', sizeof(buf));
+
+	snprintf(buf, sizeof(buf),
+		"<iq id='%s' from='%s' to='%s' type='get'>"
+  		"<ping xmlns='urn:xmpp:ping'/>"
+  		"</iq>", cpid, bctx->jid, domain);
+
+	// Create a ping, and send it
+	xmpp_stanza_t *ping = xmpp_stanza_new_from_string(ctx, buf);
+	xmpp_id_handler_add(conn, cb_heartbeat_rx_ping, cpid, userdata);
+
+	if (f_debug)
+		fprintf(stderr, "TX: PING --> %s\n", domain);
+	xmpp_send(conn, ping);
+
+	xmpp_stanza_release(ping);
+	xmpp_free(ctx, cpid);
+	xmpp_free(ctx, domain);
+
+	return 1;
+}
+
+
+static int
+cb_iq(xmpp_conn_t *const conn,
+      xmpp_stanza_t *const stanza, 
+      void *const userdata) {
 	char buf[2048];
 	memset(buf, '\0', 2048);
 
@@ -169,14 +343,20 @@ cb_iq(xmpp_conn_t *const conn, xmpp_stanza_t *const stanza,
 	char *to_domain = xmpp_jid_domain(ctx, to);
 	char *to_resource = xmpp_jid_resource(ctx, to);
 
-	if ((query = xmpp_stanza_get_child_by_ns(stanza, "urn:xmpp:ping")) 
-		!= NULL)
+	char *resp_to_jid = xmpp_jid_new(ctx,
+		from_node, from_domain, from_resource);
+	char *resp_from_jid = xmpp_jid_new(ctx,
+		to_node, to_domain, to_resource);
+
+	if ((query = xmpp_stanza_get_child_by_ns(stanza, "urn:xmpp:ping"))
+		!= NULL) {
 		/* XEP-0092 Software Version */
 		snprintf(buf, 2048,
 		"<iq type='result' to='%s' from='%s' id='%s'/>",
-		xmpp_jid_new(ctx, from_node, from_domain, from_resource),
-		xmpp_jid_new(ctx, to_node, to_domain, to_resource),
+		resp_to_jid,
+		resp_from_jid,
 		id);
+	}
 
 	if ((query = xmpp_stanza_get_child_by_ns(stanza, "urn:xmpp:time")) 
 		!= NULL) {
@@ -185,8 +365,8 @@ cb_iq(xmpp_conn_t *const conn, xmpp_stanza_t *const stanza,
 		"<iq type='result' to='%s' from='%s' id='%s'>"
 		"%s"
 		"</iq>",
-		xmpp_jid_new(ctx, from_node, from_domain, from_resource),
-		xmpp_jid_new(ctx, to_node, to_domain, to_resource),
+		resp_to_jid,
+		resp_from_jid,
 		id, iq_time());
 	}
 
@@ -202,8 +382,8 @@ cb_iq(xmpp_conn_t *const conn, xmpp_stanza_t *const stanza,
 		"</query>"
 		"</iq>",
 		id,
-		xmpp_jid_new(ctx, from_node, from_domain, from_resource),
-		xmpp_jid_new(ctx, to_node, to_domain, to_resource),
+		resp_to_jid,
+		resp_from_jid,
 		VER_MAJ, VER_MIN, VER_PNT);
 		
 
@@ -213,7 +393,8 @@ cb_iq(xmpp_conn_t *const conn, xmpp_stanza_t *const stanza,
 		"<iq id=\"%s\" from=\"%s\" to=\"%s\" type='result'>"
 		"<query xmlns='http://jabber.org/protocol/disco#info'"
 		" node='https://sinelabs.ca/uxmpp/mucbot#" XEP_0115_VER "'>"
-		"<identity category='client' name='uxmpp %s.%s.%s' type='pc'/>"
+		"<identity xml:lang='en' category='client'"
+		" name='uxmpp %s.%s.%s' type='pc'/>"
 		"<feature var='http://jabber.org/protocol/caps'/>"
 		"<feature var='http://jabber.org/protocol/disco#info'/>"
 		"<feature var='http://jabber.org/protocol/disco#items'/>"
@@ -223,8 +404,8 @@ cb_iq(xmpp_conn_t *const conn, xmpp_stanza_t *const stanza,
 		"</query>"
 		"</iq>",
 		id,
-		xmpp_jid_new(ctx, to_node, to_domain, to_resource),
-		xmpp_jid_new(ctx, from_node, from_domain, from_resource),
+		resp_from_jid,
+		resp_to_jid,
 		VER_MAJ, VER_MIN, VER_PNT);
 
 	if ((query = xmpp_stanza_get_child_by_ns(stanza,
@@ -234,8 +415,8 @@ cb_iq(xmpp_conn_t *const conn, xmpp_stanza_t *const stanza,
 		"<query xmlns='http://jabber.org/protocol/disco#items'/>"
 		"</iq>",
 		id,
-		xmpp_jid_new(ctx, to_node, to_domain, to_resource),
-		xmpp_jid_new(ctx, from_node, from_domain, from_resource));
+		resp_from_jid,
+		resp_to_jid);
 
 	if (strlen(buf)) {
 		xmpp_stanza_t *iq = xmpp_stanza_new_from_string(ctx, buf);
@@ -243,14 +424,23 @@ cb_iq(xmpp_conn_t *const conn, xmpp_stanza_t *const stanza,
 		xmpp_stanza_release(iq);
 	}
 	
+	xmpp_free(ctx, from_node);
+	xmpp_free(ctx, from_domain);
+	xmpp_free(ctx, from_resource);
+
+	xmpp_free(ctx, to_node);
+	xmpp_free(ctx, to_domain);
+	xmpp_free(ctx, to_resource);
+
+	xmpp_free(ctx, resp_to_jid);
+	xmpp_free(ctx, resp_from_jid);
 	return 1;
 }
 
 static int
-cb_presence(xmpp_conn_t *const conn, xmpp_stanza_t *const stanza,
-	void *const userdata)
-{
-	static int joined = 0;
+cb_presence(xmpp_conn_t *const conn,
+	xmpp_stanza_t *const stanza,
+	void *const userdata) {
 	(void)conn;
 	bot_ctx_t *bctx = (bot_ctx_t *)userdata;
 	xmpp_stanza_t *x, *status;
@@ -272,9 +462,9 @@ cb_presence(xmpp_conn_t *const conn, xmpp_stanza_t *const stanza,
 			if (type && strlen(type) && strncmp(type, 
 				"unavailable", strlen(type)) == 0)
 				fprintf(stderr, "LEFT: %s\n", bctx->muc);
-			else if (joined == 0) {
+			else if (bctx->joined == 0) {
 				fprintf(stderr, "JOINED: %s\n", bctx->muc);
-				joined = 1;
+				bctx->joined = 1;
 			}
 		}
 	}
@@ -282,114 +472,218 @@ cb_presence(xmpp_conn_t *const conn, xmpp_stanza_t *const stanza,
 	return 1;
 }
 
-static int
-cb_message(xmpp_conn_t *const conn, xmpp_stanza_t *const stanza,
-	void *const userdata) {
-	const char *type, *id, *p,
-		*name = NULL, 
-		*from = "",
-		*soh  = "\x01",
-		*nl   = "\n";
+static void
+handle_bot_cmd(bot_ctx_t *bctx, const char *cmd) {
+	xmpp_conn_t *conn = bctx->conn;
 
-	char c, buf[4096];
+	const char *p;
+
+	/* Trim leading whitespace */
+	for (p = cmd; *p && isspace(*p); p++);
+
+	if (strncmp(p, "disco", strlen("disco")) == 0) {
+		/* p Will become the pointer to start of JID */
+		for (p = p+strlen("disco");*p && isspace(*p); p++);
+		if (!strlen(p)) {
+			send_muc_message(conn, "Usage: disco <jid>",
+				bctx);
+		} else {
+			if (strncmp(p, bctx->jid, strlen(bctx->jid)) == 0) {
+				send_muc_message(conn,
+					"No ;)", bctx);
+				return;
+			}
+
+			disco_ctx_t *dctx = disco_init(bctx, p);
+
+			char buf[1024];
+			snprintf(buf, 1024,
+				"performing disco for %s...", p);
+			if (!dctx->active) {
+				dctx->active = 1;
+				send_muc_message(conn, buf, bctx);
+				request_disco_info(dctx, bot_disco_reply);
+			} else {
+				send_muc_message(conn,
+					"Service busy.", bctx);
+			}
+			
+		}
+	} else if (strncmp(p, "fortune", strlen(p)) == 0) {
+		int bufsz = 2048;
+		char buf[bufsz], bufout[bufsz];
+		memset(buf, '\0', bufsz);
+		if (get_fortune(buf, bufsz) == 0) {
+			snprintf(bufout, bufsz-strlen(buf),
+				"```\n%s\n```", buf);
+			send_muc_message(conn, bufout, bctx);
+		} else {
+			send_muc_message(conn, "Error fetching fortune", bctx);
+		}
+	} else if (strncmp(p, "help", strlen(p)) == 0) {
+		char buf[2048];
+		snprintf(buf, 2048, BOT_HELP_TMPL,
+			VERSION, bctx->nick);
+		send_muc_message(conn, buf, bctx);
+	} else {
+		send_muc_message(conn, "UNKNOWN COMMAND\n", bctx);
+	}
+}
+
+static void
+default_groupchat(bot_ctx_t *bctx, const char *from, const char *body) {
+	char c, buf[4096], keybuf[REGSTR_MAX];
+	xmpp_conn_t *conn = bctx->conn;
+
+	/* Ignore the first few seconds of messages */
+	if (time(NULL)-bctx->ts_start < 10)
+		return;
+
+	char body_buf[1024];
+	memset(body_buf, '\0', 1024);
+	for (size_t i = 0; i < strlen(body) && i < 1023; i++)
+		body_buf[i] = tolower(body[i]);
+
+	memset(keybuf, '\0', REGSTR_MAX);
+	snprintf(keybuf, REGSTR_MAX, "!%s ", bctx->nick);
+
+	char *from_nick = xmpp_jid_resource(bctx->ctx, from);
+
+	if (bctx->mode == BOT_MODE_DEFAULT) {
+		memset(buf, '\0', sizeof(buf));
+		size_t blen = strlen(body_buf);
+		
+		if (strncmp(body_buf, "test", blen) == 0 && blen == 4) {
+			snprintf(buf, sizeof(buf), "%s: %s",
+				from_nick, "ACK!");
+			send_muc_message(conn, buf, bctx);
+		}
+
+		if (strncmp(body_buf, "ping", blen) == 0 && blen == 4) {
+			snprintf(buf, sizeof(buf), "%s: %s",
+				from_nick, "PONG!");
+			send_muc_message(conn, buf, bctx);
+		}
+
+		if (strncmp(body, keybuf, strlen(keybuf)) == 0) {
+			const char *p = body+strlen(keybuf);
+			handle_bot_cmd(bctx, p);
+		}
+
+		if (strlen(body) > strlen(bctx->nick)+1) {
+			c = body[strlen(bctx->nick)];
+			if (strncmp(body, bctx->nick, strlen(bctx->nick)) == 0
+				&& (c == ':' || c == ',')) {
+				snprintf(buf, sizeof(buf),
+					"%s: %s\nsee: !%s help",
+					from_nick,
+					DEFAULT_REPLY,
+					bctx->nick);
+				send_muc_message(conn, buf, bctx);
+			}
+		}
+
+	}
+
+	xmpp_free(bctx->ctx, from_nick);
+}
+
+static void
+default_chat(bot_ctx_t *bctx, const char *from, const char *body) {
+	char buf[256];
+	(void)body;
+	if (bctx->mode == BOT_MODE_DEFAULT) {
+		memset(buf, '\0', sizeof(buf));
+		snprintf(buf, sizeof(buf), "I am but a simple bot.");
+		send_direct_message(from, buf, bctx);
+	}
+}
+
+static int
+cb_message(xmpp_conn_t *const conn,
+	xmpp_stanza_t *const stanza,
+	void *const userdata) {
+	const char *type, *id,
+		*from = "",
+		*stx  = "\x02",
+		*etx  = "\x03",
+		*nl   = "\n";
 
 	bot_ctx_t *bctx = userdata;
 	xmpp_ctx_t *ctx = bctx->ctx;
-	
-	
-	name = xmpp_stanza_get_name(stanza);
-	type = xmpp_stanza_get_type(stanza);
-	from = xmpp_stanza_get_from(stanza);
-	id = xmpp_stanza_get_id(stanza);
-
 	(void)conn;
-	(void)name;
-
-	if (!type || !id)
+	
+	type = xmpp_stanza_get_type(stanza);
+	if (!type)
+		return 1;	
+	id = xmpp_stanza_get_id(stanza);
+	// if (!id)
+		// return 1;
+	from = xmpp_stanza_get_from(stanza);
+	if (!from)
 		return 1;
 
-	if (strncmp(type, "groupchat", strlen(type)) == 0 && id) {
+	if (strncmp(type, "groupchat", strlen(type)) == 0) {
 		char *body = xmpp_message_get_body(stanza);
-		if (!body) return 1;
+		if (!body)
+			return 1;
 
 		printf("%s: %s\n", xmpp_stanza_get_from(stanza), body);
-
-		p = from; /* Seek the pointer up through the slash */
-		for (c = *p; p && c != '/'; c = *p++);
-
-		char bbuf[1024];
-		memset(bbuf, '\0', 1024);
-		for (size_t i = 0; i < strlen(body) && i < 1023; i++)
-			bbuf[i] = tolower(body[i]);
-
-		if (strncmp(bbuf, "test", strlen(bbuf)) == 0) {
-			memset(buf, '\0', sizeof(buf));
-			snprintf(buf, sizeof(buf), "%s: %s", p,
-				"ACK! I trust your test was successful.");
-			send_muc_message(conn, buf, userdata);
-		}
-
-		if (strncmp(bbuf, "test", strlen(bbuf)) == 0) {
-			memset(buf, '\0', sizeof(buf));
-			snprintf(buf, sizeof(buf), "%s: %s", p,
-				"ACK! I trust your test was successful.");
-			send_muc_message(conn, buf, userdata);
-		}
-
-		c = body[strlen(bctx->nick)];
-		if (strncmp(body, bctx->nick, strlen(bctx->nick)) == 0
-			&& (c == ':' || c == ',')) {
-			memset(buf, '\0', sizeof(buf));
-			snprintf(buf, sizeof(buf), "%s: %s\nsee: !%s help",
-				p, DEFAULT_REPLY, bctx->nick);
-			send_muc_message(conn, buf, userdata);
-		}
+		default_groupchat(bctx, from, body);
 
 		if (strlen(bctx->out_fifo)) {
-			int fd = open(bctx->out_fifo, O_WRONLY);
+
+			int fd = open(bctx->out_fifo,
+				O_CREAT|O_WRONLY|O_APPEND, 0640);
 			if (fd == -1) {
 				fprintf(stderr, "Error opening %s\n",
 					bctx->out_fifo);
 				return 1;
 			}
 
-			write(fd, soh, 1);
+			write(fd, stx, 1);
+			write(fd, nl, 1);
 			write(fd, from, strlen(from));
 			write(fd, nl, 1);
 			write(fd, body, strlen(body));
+			write(fd, nl, 1);
+			write(fd, etx, 1);
+			write(fd, nl, 1);
 			close(fd);
 		}
 		
 		xmpp_free(ctx, body);
 
-	} else if (strncmp(type, "chat", strlen(type)) == 0 && id) {
+	} else if (strncmp(type, "chat", strlen(type)) == 0) {
 		char *body = xmpp_message_get_body(stanza);
 		if (!body)
 			return 1;
-		fprintf(stderr, "%s",   soh);
 		fprintf(stderr, "%s: ", from);
 		fprintf(stderr, "%s\n", body);
 
-		memset(buf, '\0', sizeof(buf));
-		snprintf(buf, sizeof(buf), "I am but a simple bot.");
-		
-		send_direct_message(from, buf, userdata);
+		default_chat(bctx, from, body);
 
 		xmpp_free(ctx, body);
 	} else {
-		fprintf(stderr, "received unhandled message: %s:%s:%s:%s\n",
-			name, type, id, from);
+		fprintf(stderr, "received unhandled message: %s:%s:%s\n",
+			type, id, from);
 	}
 
 	return 1;
 }
 
 static int
-cb_handler(xmpp_conn_t *const conn, xmpp_stanza_t *const stanza,
+cb_handler(xmpp_conn_t *const conn,
+	xmpp_stanza_t *const stanza,
 	void *const userdata) {
 	(void)stanza;
-	bot_ctx_t *bctx = (bot_ctx_t *)userdata;
-	if (bctx->quit) {
+	(void)userdata;
+
+	int quit = 1;
+	for (int i = 0; i < running_bots; i++)
+		if (!(running_bot[i])->quit) quit = 0;
+
+	if (quit) {
 		if (f_debug)
 			fprintf(stderr, "cb_handler: xmpp_disconnect()");
 		xmpp_disconnect(conn);
@@ -400,33 +694,91 @@ cb_handler(xmpp_conn_t *const conn, xmpp_stanza_t *const stanza,
 }
 
 static int
-mk_fifos(bot_ctx_t *bctx)
-{
-	// TODO: exit on failure
+mk_fifos(bot_ctx_t *bctx) {
+	char buf[PATH_MAX];
+
+	if (!bctx->fifo_path || !strlen(bctx->fifo_path))
+		return 0;
+
+	if (access(bctx->fifo_path, R_OK | W_OK | X_OK) != 0) {
+		fprintf(stderr,
+			"Cannot create FIFOs, invalid permissions for: %s\n",
+			bctx->fifo_path);
+		return FAIL_FIFO_PATH;
+	}
+
+	const char *domain = xmpp_jid_domain(bctx->ctx, bctx->muc);
+	const char *node = xmpp_jid_node(bctx->ctx, bctx->muc);
+	const char *node_j = xmpp_jid_node(bctx->ctx, bctx->jid);
+	const char *domain_j = xmpp_jid_domain(bctx->ctx, bctx->jid);
+
+	if (!domain || !node || !node_j || !domain_j) {
+		return FAIL_FIFO_JID;
+	}
+
+	snprintf(buf, PATH_MAX, "%s/%s", bctx->fifo_path, domain);
+	
+
+	if (!is_dir(buf) && !is_file(buf)) {
+		if (mkdir(buf, 0700) != 0)
+			return FAIL_FIFO_PATH;
+	}
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
+	size_t bwa = snprintf(bctx->in_fifo, PATH_MAX, "%s/in-%s",  buf, node);
+	size_t bwb = snprintf(bctx->out_fifo,PATH_MAX, "%s/out-%s", buf, node);
+	size_t bwc = snprintf(bctx->cmd_fifo,PATH_MAX, "%s/%s@%s",
+		bctx->fifo_path, node_j, domain_j);
+	if (bwa >= PATH_MAX || bwb >= PATH_MAX || bwc >= PATH_MAX) {
+		/* Truncation is actually the feature we want... */
+		fprintf(stderr, "ERROR: invalid output_fifo path(s)\n");
+		return 0;
+	}
+#pragma GCC diagnostic pop
+
+	xmpp_free(bctx->ctx, (void *)node);
+	xmpp_free(bctx->ctx, (void *)domain);
+	xmpp_free(bctx->ctx, (void *)domain_j);
+	xmpp_free(bctx->ctx, (void *)node_j);
+
+	if (strlen(bctx->cmd_fifo))
+		if (mkfifo(bctx->cmd_fifo, 0664) != 0) {
+			fprintf(stderr, "cannot create FIFO: %s\n",
+				bctx->cmd_fifo);
+			memset(bctx->cmd_fifo, '\0', PATH_MAX);
+			return FAIL_FIFO_PATH;
+		}
+
 	if (strlen(bctx->in_fifo))
-		mkfifo(bctx->in_fifo, 0664);
+		if (mkfifo(bctx->in_fifo, 0664) != 0) {
+			fprintf(stderr, "cannot create FIFO: %s\n",
+				bctx->in_fifo);
+			memset(bctx->in_fifo, '\0', PATH_MAX);
+			return FAIL_FIFO_PATH;
+		}
 
-	if (strlen(bctx->out_fifo))
-		mkfifo(bctx->out_fifo, 0664);
-
-	return 1;
+	return RETURN_SUCCESS;
 }
 
 static int
-del_fifos(bot_ctx_t *bctx)
-{
+del_fifos(bot_ctx_t *bctx) {
 	if (strlen(bctx->in_fifo))
 		unlink(bctx->in_fifo);
-	if (strlen(bctx->out_fifo))
-		unlink(bctx->out_fifo);
+	// if (strlen(bctx->out_fifo))
+	// 	unlink(bctx->out_fifo);
+	if (strlen(bctx->cmd_fifo))
+		unlink(bctx->cmd_fifo);
 
 	return 1;
 }
 
 static void
-on_connect(xmpp_conn_t * const conn, xmpp_conn_event_t status, int error, 
-	xmpp_stream_error_t *stream_error, void * const userdata)
-{
+on_connect(xmpp_conn_t * const conn,
+	xmpp_conn_event_t status,
+	int error,
+	xmpp_stream_error_t *stream_error,
+	void * const userdata) {
 	char muc_jid_buf[REGSTR_MAX];
 	bot_ctx_t *bctx = userdata;
 	xmpp_ctx_t *ctx = bctx->ctx;
@@ -437,22 +789,26 @@ on_connect(xmpp_conn_t * const conn, xmpp_conn_event_t status, int error,
 			bctx->muc, bctx->nick);
 
 		bctx->connected = 1;
-		running_bot = userdata;
+		running_bot[bctx->index] = userdata;
 
-		mk_fifos(bctx);
+		/* mk_fifos use xmpp_jid_* routines, and require a ctx */
+		if (mk_fifos(bctx) != 0) {
+			xmpp_disconnect(conn);
+			return;
+		}
 		
-		/* Channel presence ID */
 		char *cpid = xmpp_uuid_gen(ctx);
 
 		xmpp_handler_add(conn, cb_message, NULL,
 			"message", NULL, bctx);
-		// xmpp_handler_add(conn, cb_presence, NULL,
-		// 	"presence", NULL, bctx);
 		xmpp_id_handler_add(conn, cb_presence, cpid, bctx);
 		xmpp_handler_add(conn, cb_iq, NULL,
 			"iq", "get", bctx);
 		xmpp_handler_add(conn, cb_handler, NULL,
 			NULL, NULL, bctx);
+		if (f_usecs)
+			xmpp_timed_handler_add(conn,
+				cb_heartbeat, f_usecs, bctx);
 
 		xmpp_stanza_t *pres = xmpp_presence_new(ctx);
 		xmpp_send(conn, pres);
@@ -482,13 +838,24 @@ on_connect(xmpp_conn_t * const conn, xmpp_conn_event_t status, int error,
 		xmpp_free(ctx, cpid);
 
 		if (strlen(bctx->in_fifo)) {
-			if (pthread_create(&bctx->fifo_thread, NULL, 
+			if (pthread_create(&bctx->in_thread, NULL, 
 				th_watch_fifo, userdata) == 0)
-				pthread_detach(bctx->fifo_thread);
+				pthread_detach(bctx->in_thread);
 			else
 				fprintf(stderr,
 					"ERROR: Unable to spawn thread\n");
 		}
+
+		if (strlen(bctx->cmd_fifo)) {
+			if (pthread_create(&bctx->cmd_thread, NULL, 
+				th_watch_cmd_fifo, userdata) == 0)
+				pthread_detach(bctx->cmd_thread);
+			else
+				fprintf(stderr,
+					"ERROR: Unable to spawn thread\n");
+		}
+
+		bctx->ts_start = time(NULL);
 
 	} else if (status == XMPP_CONN_FAIL) {
 		fprintf(stderr, "Connection or authentication "
@@ -505,28 +872,32 @@ on_connect(xmpp_conn_t * const conn, xmpp_conn_event_t status, int error,
 	(void)stream_error;
 }
 
+bot_ctx_t
+bot_ctx_new(void) {
+	bot_ctx_t bctx;
+	memset(&bctx, 0, sizeof(bot_ctx_t));
+	bctx.index = running_bots++;
+
+	return bctx;
+}
 
 int
-start_bot(bot_ctx_t *usr)
-{
-	running_bot = NULL;
+start_bot(bot_ctx_t *usr) {
 	bot_ctx_t *bctx = usr;
-	bctx->connected = 0;
-	bctx->quit = 0;
+	for (int i = bctx->index; i < MAX_N_BOTS; i++)
+		running_bot[i] = NULL;
 
 	if (bctx->jid == NULL || bctx->pass == NULL) {
 		fprintf(stderr, "Invalid or missing credentials.\n");
-		return 1;
+		return FAIL_GENERIC;
 	}
 
 	if (!strlen(bctx->jid)) {
 		fprintf(stderr, "Invalid or missing credentials.\n");
-		return 1;
+		return FAIL_GENERIC;
 	}
 
 	xmpp_initialize();
-
-	printf("Starting bot...\n");
 
 	xmpp_log_t *logger = NULL;
 	if (f_debug)
@@ -535,7 +906,7 @@ start_bot(bot_ctx_t *usr)
 	bctx->ctx = xmpp_ctx_new(NULL, logger);
 	if (bctx->ctx == NULL) {
 		xmpp_shutdown();
-		return 1;
+		return FAIL_GENERIC;
 	}
 
 	bctx->conn = xmpp_conn_new(bctx->ctx);
@@ -543,7 +914,7 @@ start_bot(bot_ctx_t *usr)
 		fprintf(stderr, "Could not start connection.\n");
 		xmpp_ctx_free(bctx->ctx);
 		xmpp_shutdown();
-		return 1;
+		return FAIL_GENERIC;
 	}
 
 	xmpp_conn_set_jid(bctx->conn, bctx->jid);
@@ -560,52 +931,52 @@ start_bot(bot_ctx_t *usr)
 
 	del_fifos(bctx);
 
-	return 0;
+	return RETURN_SUCCESS;
 }
 
 void
-stop_bot(int signal)
-{
+stop_bots(int signal) {
 	const char *sigstr = "SIGNAL";
 
-	if (!running_bot)
-		exit(0);
+	for (int i = 0; i < running_bots && running_bot[i] != NULL; i++) {
+		bot_ctx_t *rb = running_bot[i];
+		if (!rb)
+			exit(0);
 
-	if (signal == 2)
-		sigstr = "SIGINT";
-	if (signal == 15)
-		sigstr = "SIGTERM";
-	else if (signal == 3)
-		sigstr = "SIGQUIT";
+		if (signal == 2)
+			sigstr = "SIGINT";
+		if (signal == 15)
+			sigstr = "SIGTERM";
+		else if (signal == 3)
+			sigstr = "SIGQUIT";
 
-	if (running_bot->quit) {
-		
+		if (rb->quit) {
+			fprintf(stderr,
+				"\nRECEIVED %s (%d), for the 2nd time: killing...",
+				sigstr, signal);
+			exit(1);
+		}
+
+		rb->quit = 1;
 
 		fprintf(stderr,
-			"\nRECEIVED %s (%d), for the 2nd time: killing...",
+			"\nRECEIVED %s (%d), shutting down...\n",
 			sigstr, signal);
-		exit(1);
+
+		bot_ctx_t *bctx = rb;
+		xmpp_ctx_t *ctx = bctx->ctx;
+		xmpp_conn_t *conn = bctx->conn;
+
+		char muc_jid_buf[REGSTR_MAX];
+
+		xmpp_stanza_t *presence = xmpp_presence_new(ctx);
+		xmpp_stanza_set_id(presence, bctx->jid);
+		xmpp_stanza_set_type(presence, "unavailable");
+		memset(muc_jid_buf, '\0', REGSTR_MAX);
+		snprintf(muc_jid_buf, REGSTR_MAX, "%s/%s",
+			bctx->muc, bctx->nick);
+		xmpp_stanza_set_to(presence, muc_jid_buf);
+		xmpp_send(conn, presence);
+		xmpp_stanza_release(presence);
 	}
-
-	running_bot->quit = 1;
-
-	fprintf(stderr,
-		"\nRECEIVED %s (%d), shutting down...\n",
-		sigstr, signal);
-
-	bot_ctx_t *bctx = running_bot;
-	xmpp_ctx_t *ctx = bctx->ctx;
-	xmpp_conn_t *conn = bctx->conn;
-
-	char muc_jid_buf[REGSTR_MAX];
-
-	xmpp_stanza_t *presence = xmpp_presence_new(ctx);
-	xmpp_stanza_set_id(presence, bctx->jid);
-	xmpp_stanza_set_type(presence, "unavailable");
-	memset(muc_jid_buf, '\0', REGSTR_MAX);
-	snprintf(muc_jid_buf, REGSTR_MAX, "%s/%s",
-		bctx->muc, bctx->nick);
-	xmpp_stanza_set_to(presence, muc_jid_buf);
-	xmpp_send(conn, presence);
-	xmpp_stanza_release(presence);
 }
