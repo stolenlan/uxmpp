@@ -13,7 +13,7 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 PREFIX?=/usr/local
-MANPREFIX=$(PREFIX)
+MAN_PREFIX=$(PREFIX)
 
 _CFLAGS=-O2 -fstack-protector-strong -fdiagnostics-color -Wall -Wextra \
 	-std=c17 \
@@ -55,7 +55,7 @@ uxmpp: $(OBJS) main.c
 .PHONY: install
 install: all
 	install -D -m 0755 uxmpp $(DESTDIR)$(PREFIX)/bin/uxmpp
-	install -D -m 0644 uxmpp.1 $(DESTDIR)$(MANPREFIX)/man/man1/uxmpp.1
+	install -D -m 0644 uxmpp.1 $(DESTDIR)$(MAN_PREFIX)/man/man1/uxmpp.1
 
 .PHONY: test
 test:
