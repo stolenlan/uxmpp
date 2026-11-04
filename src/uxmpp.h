@@ -3,10 +3,12 @@
 
 #define VER_MAJ	"0"
 #define VER_MIN	"0"
-#define VER_PNT	"9"
+#define VER_PNT	"10"
 #define VERSION	VER_MAJ "." VER_MIN "." VER_PNT
 
+/* Regular string max */
 #define REGSTR_MAX	256
+#define STANZA_MAX	8192
 
 enum err_code_t {
 	RETURN_SUCCESS = 0,
@@ -18,7 +20,8 @@ enum err_code_t {
 
 #define USAGE_STR \
 "Usage: %s [-d] [-f] [-i in_fifo] [-j user_jid] [-m] [-n nickname]\n"\
-"       [-o out_fifo] [-p password] [-t target_jid] [-v] command\n"
+"       [-o out_fifo] [-p password] [-r raw_stanza] [-t target_jid]\n"\
+"       [-u u_seconds] [-v] COMMAND\n"
 
 extern int f_debug;
 extern int f_mdown;

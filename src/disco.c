@@ -39,10 +39,45 @@ addr_label(const char *attribute) {
 	return attr_p;
 }
 
+static void
+display_disco_info_addrs(disco_ctx_t *dctx,
+	xmpp_stanza_t *field,
+	char buf[DISCO_MAX_RESULT],
+	int colw) {
+
+	static const char *address_types[] = {XEP_0157_ADDRESSES, NULL};
+	int buflen, remsz, n_atypes = 0;
+
+	for (n_atypes = 0; address_types[n_atypes] != NULL; n_atypes++);
+
+	xmpp_ctx_t *ctx = xmpp_stanza_get_context(field);
+	const char *fvar = xmpp_stanza_get_attribute(field, "var");
+
+	for (int i = 0; i < n_atypes; i++) {
+		const char *atype = address_types[i];
+		const char *albl = addr_label(atype);
+		if (!atype || !albl)
+			break;
+		if (strncmp(fvar, atype, strlen(fvar)) != 0)
+			continue;
+
+		xmpp_stanza_t *value = xmpp_stanza_get_children(field);
+		for (; value; value = xmpp_stanza_get_next(value)) {
+			char *c = xmpp_stanza_get_text(value);
+			snprintf(buf, DISCO_MAX_RESULT, "%*s: %s\n",
+				colw, albl, c);
+			buflen = strlen(buf);
+			remsz = DISCO_MAX_RESULT-(dctx->p-dctx->result);
+			snprintf(dctx->p, remsz, "%s", buf);
+			dctx->p += buflen;
+			xmpp_free(ctx, c);
+		}
+	}
+}
+
 void
 display_disco_info(disco_ctx_t *dctx, xmpp_stanza_t * const child) {
 
-	static const char *address_types[] = {XEP_0157_ADDRESSES, NULL};
 	static const int colw = 12;
 	char buf[DISCO_MAX_RESULT];
 	size_t buflen, remsz;
@@ -57,10 +92,8 @@ display_disco_info(disco_ctx_t *dctx, xmpp_stanza_t * const child) {
 	}
 
 	const char *name = xmpp_stanza_get_name(child);
-	xmpp_ctx_t *ctx = xmpp_stanza_get_context(child);
-	int n_atypes = 0;
-
-	for (n_atypes = 0; address_types[n_atypes] != NULL; n_atypes++);
+	// xmpp_ctx_t *ctx = xmpp_stanza_get_context(child);
+	
 
 	if (dctx->result && strlen(dctx->result) == 0) {
 		char *htpl = "*disco result: %s*\n```\n";
@@ -97,36 +130,9 @@ display_disco_info(disco_ctx_t *dctx, xmpp_stanza_t * const child) {
 
 	if (strncmp(name, "x", strlen(name)) == 0) {
 		xmpp_stanza_t *x = child;
-
 		for (xmpp_stanza_t *field = xmpp_stanza_get_children(x);
 			field; field = xmpp_stanza_get_next(field)) {
-
-			const char *fvar = xmpp_stanza_get_attribute(field,
-				"var");
-
-			for (int i = 0; i < n_atypes; i++) {
-				const char *atype = address_types[i];
-				const char *albl = addr_label(atype);
-				if (!atype || !albl)
-					break;
-				if (strncmp(fvar, atype, strlen(fvar)) != 0)
-					continue;
-
-				xmpp_stanza_t *value = 
-					xmpp_stanza_get_children(field);
-				for (; value; value =
-					xmpp_stanza_get_next(value)) {
-					char *d = xmpp_stanza_get_text(value);
-					snprintf(buf, DISCO_MAX_RESULT, "%*s: %s\n",
-						colw, albl, d);
-					buflen = strlen(buf);
-					remsz = DISCO_MAX_RESULT-(dctx->p-dctx->result);
-					snprintf(dctx->p, remsz, "%s", buf);
-					dctx->p += buflen;
-
-					xmpp_free(ctx, d);
-				}
-			}
+			display_disco_info_addrs(dctx, field, buf, colw);
 		}
 	}
 }

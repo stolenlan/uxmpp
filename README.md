@@ -5,11 +5,13 @@
 | | | | \ \/ / | '_ ` _ \  | '_ \  | '_ \
 | |_| |  >  <  | | | | | | | |_) | | |_) |
  \__,_| /_/\_\ |_| |_| |_| | .__/  | .__/
--XMPP Utilities *NIX style-|_|     |_|
+ Utilities for XMPP        |_|     |_|
 ==========================================
 ```
 
-This project consists (or rather will consist) of a suite of tools for,
+## Description
+
+This project consists (or rather will consist) of a set of tools for,
 testing, configuring, troubleshooting, and generally using XMPP services
 in a way that fits with other basic tools found on a given POSIX system.
 FIFOs corresponding to various services, protocols, and features may
@@ -18,36 +20,41 @@ new implementations using other standard \*NIX tools.
 
 The original motivation for this project was to investigate, and ideally
 implement an effective independent/sovereign XMPP spam mitigation system
-for federated XMPP servers, and thus that should be considered the
-projects initial focus while keeping general purpose use in mind. 
+for federated XMPP servers while keeping general purpose use in mind. 
 
-### DEPENDS
+## Project Goals
 
-- `clang (or GCC)`
-- `libstrophe(-dev)`
-- `(open|libressl)-dev` (build only)
+Apart from the overall direction, the following general goals apply:
 
+- **Code is clear, easy to reason about, and maintain.**
+- Utilities and functions should be applicable to general use cases.
+- Learn about, and contribute to the wider XMPP protocol.
+- Provide feature tests and reference implementations for various XEPs
 
-## BUILDING
+## Building and Installation
 
 Tested on OpenBSD, and Linux (various). This is currently a very simple
 tool, thus the "build system" is `make`, and a few shell scripts, if
 required.
 
-### If You're running...
+### Dependencies
+
+- `clang or GCC`
+- `BSD make or GNU make`
+- `libstrophe(-dev)`
 
 ### OpenBSD:
 
 ```shell
 $ make && \
-  doas -u root make install
+  make install # As root
 ```
 
 ### Linux:
 
 ```shell
-$ make \
-  && sudo make PREFIX=/usr MAN_PREFIX=/usr/share install
+$ make && \
+  sudo make PREFIX=/usr MAN_PREFIX=/usr/share install
 ```
 
 ### Windows:
@@ -55,8 +62,8 @@ $ make \
 **Install BSD or Linux, be liberated, rejoice, then...**
 
 ```sh
-$ make \
-  && sudo make PREFIX=/usr MAN_PREFIX=/usr/share install
+$ make && \
+  sudo make PREFIX=/usr MAN_PREFIX=/usr/share install
 ```
 
 ## AI Code(ing Agents)
@@ -64,7 +71,7 @@ $ make \
 > AI has not been used in the production of this software.
 
 A tool like many others, I could say a great deal regarding AI and it's
-implications, but that is not needed. I'm not judging anyone for the
+implications, but that's not needed. I'm not judging anyone for the
 responsible use of generative AI, rather simply:
 this is not the place for it.
 
@@ -74,7 +81,18 @@ Regardless, I'd encourage anyone to check out
 
 ---
 
-## CHANGELOG
+## Changes
+
+Version 0.0.10
+
+- Update disco.c add display_disco_info_addrs() helper to tidy up the
+  recursive loop.
+- Update README.md
+- Add support (sendraw.h/c) to send arbitrary stanzas over an existing
+  connection.
+- Remove `/bin/sh` from the unveil call, popen() is not being used to call
+  fortune any longer.
+
 
 Version 0.0.9
 
@@ -85,8 +103,10 @@ Version 0.0.9
 Version 0.0.8
 
 - Project added to GitHub
-- Updated the applicable entity caps to point to (apparently, a few MUCs
-  require that the entity caps node resolves to an endpoint?)
+- Updated the applicable entity capabilities presence node attribute to
+  a FQDN (apparently, a few MUCs require it). Until I get around to a
+  home page on sinelabs.ca, the node attribute corresponds to the
+  github project page.
 
 
 Version 0.0.7

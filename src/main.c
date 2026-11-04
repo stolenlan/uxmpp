@@ -28,6 +28,7 @@
 #include "bot.h"
 #include "disco.h"
 #include "ping.h"
+#include "sendraw.h"
 
 #define CMDLEN_MAX 256
 #define COL_WIDTH 12
@@ -49,15 +50,10 @@ main(int argc, char *argv[])
 	char 	c, 
 		command[CMDLEN_MAX], fifo_path[PATH_MAX],
 		jid[REGSTR_MAX], password[REGSTR_MAX],
+		rstanza[STANZA_MAX],
 		target_jid[REGSTR_MAX],
 		in_path[PATH_MAX], out_path[PATH_MAX],
 		nick[REGSTR_MAX];
-
-#ifdef __OpenBSD__
-	if (pledge("stdio unveil dns inet rpath cpath dpath wpath tty proc exec", 
-		NULL) < 0)
-		return 1;
-#endif
 
 	memset(command,      '\0', CMDLEN_MAX);
 	memset(fifo_path,    '\0', PATH_MAX);
@@ -66,9 +62,10 @@ main(int argc, char *argv[])
 	memset(nick,         '\0', REGSTR_MAX);
 	memset(out_path,     '\0', PATH_MAX);
 	memset(password,     '\0', REGSTR_MAX);
+	memset(rstanza,	     '\0', STANZA_MAX);
 	memset(target_jid,   '\0', REGSTR_MAX);
 	
-	while((c = getopt(argc, argv, "df:i:j:mn:o:p:t:u:v")) != -1) {
+	while((c = getopt(argc, argv, "df:i:j:mn:o:p:r:t:u:v")) != -1) {
 		switch (c) {
 		case 'd':
 			f_debug = 1;
@@ -94,6 +91,9 @@ main(int argc, char *argv[])
 		case 'p':
 			snprintf(password, REGSTR_MAX, "%s", optarg);
 			break;
+		case 'r':
+			snprintf(rstanza, REGSTR_MAX, "%s", optarg);
+			break;
 		case 't':
 			snprintf(target_jid, REGSTR_MAX, "%s", optarg);
 			break;
@@ -108,6 +108,20 @@ main(int argc, char *argv[])
 			return 0;
 		}
 	}
+
+#ifdef __OpenBSD__
+	/* I don't like having tty here, but password prompt needs it */
+	const char *envpass = getenv("XMPP_PASSWORD");
+	if (!envpass || !strlen(password)) {
+		if (pledge("stdio unveil dns inet rpath cpath "
+			"dpath wpath tty proc exec", NULL) < 0)
+			return 1;
+	} else {
+		if (pledge("stdio unveil dns inet rpath cpath "
+			"dpath wpath proc exec", NULL) < 0)
+			return 1;
+	}
+#endif
 
 	if (f_show_vers) {
 		if (f_debug) {
@@ -133,12 +147,10 @@ main(int argc, char *argv[])
 		}
 	}
 
-#ifdef __OpenBSD__
-	
+#ifdef __OpenBSD__	
 	if ( unveil("/etc/hosts", "r") < 0
 		|| unveil("/etc/resolv.conf", "r") < 0
 		|| unveil("/etc/ssl/cert.pem", "r") < 0
-		|| unveil("/bin/sh", "x") < 0
 		|| unveil("/usr/games/fortune", "x") < 0)
 		return 1;
 
@@ -208,7 +220,6 @@ main(int argc, char *argv[])
 		return retval;
 	}
 
-
 	if (strncmp(command, "ping", strlen(command)) == 0) {
 		if (!strlen(target_jid)) {
 			printf("A target_jid is required, "
@@ -220,6 +231,19 @@ main(int argc, char *argv[])
 			return 1;
 
 		return xmpp_ping(jid, password, target_jid);
+	}
+
+	if (strncmp(command, "sendraw", strlen(command)) == 0) {
+		if (!strlen(rstanza)) {
+			printf("A raw_stanza is required, "
+				"specify with -r\n");
+			return 1;
+		}
+
+		if (!get_jid_credentials(jid, password))
+			return 1;
+
+		return send_rawiq_id(jid, password, rstanza);
 	}
 
 	printf("Unknown command: `%s` ("

@@ -20,7 +20,7 @@ _CFLAGS=-O2 -fstack-protector-strong -fdiagnostics-color -Wall -Wextra \
 	-Wpedantic -Wshadow -D_DEFAULT_SOURCE -I/usr/local/include $(CFLAGS)
 LDFLAGS=-L/usr/local/lib -lstrophe -lpthread
 
-OBJS=disco.o uxmpp.o bot.o ping.o util.o
+OBJS=disco.o uxmpp.o bot.o ping.o util.o sendraw.o
 TGTS=uxmpp
 
 CLEAN=$(TGTS) *.o *.core ktrace.out \
@@ -42,6 +42,9 @@ ping.o: ping.c ping.h
 
 util.o: util.c util.h
 	$(CC) $(_CFLAGS) -c -o $@ util.c
+
+sendraw.o: sendraw.c sendraw.h
+	$(CC) $(_CFLAGS) -c -o $@ sendraw.c
 
 xep-0115-ver.h: xep-0115-ver-gen
 	@./xep-0115-ver-gen

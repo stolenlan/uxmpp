@@ -29,6 +29,7 @@
 .Op Fl n Ar nickname
 .Op Fl o Ar out_fifo
 .Op Fl p Ar password
+.Op Fl r Ar raw_stanza
 .Op Fl t Ar target_jid
 .Op Fl u Ar u_seconds
 .Op Fl v
@@ -57,6 +58,13 @@
 .Op Fl p Ar password
 .Fl t Ar target_jid
 .Cm ping
+.Nm
+.Op Fl d
+.Op Fl j Ar user_jid
+.Op Fl p Ar password
+.Fl r Ar raw_stanza
+.Op Fl t Ar target_jid
+.Cm sendraw
 .Sh DESCRIPTION
 .Nm
 consists of a set of tools for querying, testing, configuring, 
@@ -95,6 +103,10 @@ is read.
 .It Cm ping
 Send an xmpp:ping to the applicable
 .Ar target_jid .
+.It Cm rawsend
+Send a raw stanza that has been provided using the
+.Fl r
+option.
 .El
 .Ss The options are as follows:
 .Bl -tag -width Ds
@@ -137,6 +149,8 @@ Specify a password. You should know it is widely accepted as a bad idea to
 provide credentials in this manner; I would certainly raise an eyebrow if a
 person used this option corresponding to a JID with privileges. That said, you
 do you.
+.It Fl r Ar raw_stanza
+Provide a raw XMPP stanza.
 .It Fl t Ar target_jid
 Provide a target host/JID for a given function. For example:
 .Cm xmpp.example.com .

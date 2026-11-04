@@ -28,9 +28,7 @@ check_outpath(const char *path)
 }
 
 int
-get_fortune(char *fortune_out, int max)
-{
-	// Create the pipe to send to sendmail's stdin
+get_fortune(char *fortune_out, int max) {
 	int pfd[2];
 	if(pipe(pfd) == -1) {
 		printf("Error creating pipe\n");
@@ -43,7 +41,7 @@ get_fortune(char *fortune_out, int max)
 		return 0;
 	}
 
-	if(pid == 0) { // Child
+	if(pid == 0) {
 		close(pfd[0]);
 		char *args[] = {
 			"fortune", 
@@ -53,16 +51,16 @@ get_fortune(char *fortune_out, int max)
 
 		dup2(pfd[1], STDOUT_FILENO);
 		execve("/usr/games/fortune", args, NULL);
-		// If execve fails for some reason
+
 		close(pfd[1]);
 		return 1;
 	}
 	
-	close(pfd[1]); // We don't need to listen
+	close(pfd[1]);
 	char buf[max];
 	memset(buf, '\0', max);
 	read(pfd[0], buf, max-1);
-	close(pfd[0]); // Finally window the pipe
+	close(pfd[0]);
 	int status;
 	waitpid(pid, &status, 0);
 
@@ -72,8 +70,7 @@ get_fortune(char *fortune_out, int max)
 }
 
 int
-get_jid_credentials(char *jid, char *password)
-{
+get_jid_credentials(char *jid, char *password) {
 	if (!jid || !password)
 		return 0;
 
@@ -107,8 +104,7 @@ get_jid_credentials(char *jid, char *password)
 	return 1;
 }
 
-int  jid_get_local(char out[REGSTR_MAX], const char *jid)
-{
+int  jid_get_local(char out[REGSTR_MAX], const char *jid) {
 	xmpp_ctx_t *ctx = xmpp_ctx_new(NULL, NULL);
 	const char *node = xmpp_jid_node(ctx, jid);
 	snprintf(out, REGSTR_MAX, "%s", node);
@@ -119,8 +115,7 @@ int  jid_get_local(char out[REGSTR_MAX], const char *jid)
 }
 
 int
-pw_prompt(const char *prompt, char in_password[REGSTR_MAX])
-{
+pw_prompt(const char *prompt, char in_password[REGSTR_MAX]) {
 	char *in_password_p, *buf_p, buf[REGSTR_MAX];
 	struct termios oldt, newt;
 	if (tcgetattr(STDIN_FILENO, &oldt) == -1) {
