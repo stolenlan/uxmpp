@@ -13,14 +13,14 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 PREFIX?=/usr/local
-MAN_PREFIX=$(PREFIX)
+MANPREFIX?=/usr/local/man
 
 _CFLAGS=-O2 -fstack-protector-strong -fdiagnostics-color -Wall -Wextra \
 	-std=c17 \
 	-Wpedantic -Wshadow -D_DEFAULT_SOURCE -I/usr/local/include $(CFLAGS)
 LDFLAGS=-L/usr/local/lib -lstrophe -lpthread
 
-OBJS=disco.o uxmpp.o bot.o ping.o util.o sendraw.o
+OBJS=disco.o uxmpp.o bot.o ping.o util.o sendraw.o game.o
 TGTS=uxmpp
 
 CLEAN=$(TGTS) *.o *.core ktrace.out \
@@ -30,6 +30,9 @@ all: $(TGTS)
 
 disco.o: disco.c disco.h
 	$(CC) $(_CFLAGS) -c -o $@ disco.c
+
+game.o: game.c game.h
+	$(CC) $(_CFLAGS) -c -o $@ game.c
 
 uxmpp.o: uxmpp.c uxmpp.h
 	$(CC) $(_CFLAGS) -c -o $@ uxmpp.c
@@ -58,7 +61,7 @@ uxmpp: $(OBJS) main.c
 .PHONY: install
 install: all
 	install -D -m 0755 uxmpp $(DESTDIR)$(PREFIX)/bin/uxmpp
-	install -D -m 0644 uxmpp.1 $(DESTDIR)$(MAN_PREFIX)/man/man1/uxmpp.1
+	install -D -m 0644 uxmpp.1 $(DESTDIR)$(MANPREFIX)/man1/uxmpp.1
 
 .PHONY: test
 test:

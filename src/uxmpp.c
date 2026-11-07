@@ -29,6 +29,23 @@ check_outpath(const char *path)
 
 int
 get_fortune(char *fortune_out, int max) {
+
+	static const char *fpaths[] = {
+		"/usr/games/fortune",
+		"/usr/bin/fortune",
+		"/usr/local/bin/fortune",
+		NULL
+	};
+	
+	const char *fpath = fpaths[0];
+	for (int i = 1; i < 5 && fpath; fpath = fpaths[i++])
+		if (access(fpath, X_OK) == 0) break;
+
+	if (!fpath) {
+		fprintf(stderr, "fortune not found\n");
+		return 1;
+	}
+
 	int pfd[2];
 	if(pipe(pfd) == -1) {
 		printf("Error creating pipe\n");
@@ -41,16 +58,23 @@ get_fortune(char *fortune_out, int max) {
 		return 0;
 	}
 
+	char opts[16];
+	memset(opts, '\0', 16);
+	if (f_adult)
+		snprintf(opts, 16, "-o");
+	else
+		snprintf(opts, 16, "-l");
+
 	if(pid == 0) {
 		close(pfd[0]);
 		char *args[] = {
-			"fortune", 
-			"-l",
+			"fortune",
+			opts,
 			NULL
 		};
 
 		dup2(pfd[1], STDOUT_FILENO);
-		execve("/usr/games/fortune", args, NULL);
+		execve(fpath, args, NULL);
 
 		close(pfd[1]);
 		return 1;
@@ -112,6 +136,44 @@ int  jid_get_local(char out[REGSTR_MAX], const char *jid) {
 	xmpp_ctx_free(ctx);
 
 	return (int)strlen(out);
+}
+
+int
+parse_version_stanza(char *out, int len, const char *stanza_text) {
+	char *name = NULL,*vers = NULL,*os = NULL;
+
+	xmpp_ctx_t *ctx = xmpp_ctx_new(NULL, NULL);
+	xmpp_stanza_t *stanza = xmpp_stanza_new_from_string(ctx, stanza_text);
+
+	xmpp_stanza_t *query = xmpp_stanza_get_child_by_ns(stanza,
+		"jabber:iq:version");
+	if (!query)
+		return 1;
+
+	xmpp_stanza_t *sname = xmpp_stanza_get_child_by_name(query, "name");
+	xmpp_stanza_t *svers = xmpp_stanza_get_child_by_name(query, "version");
+	xmpp_stanza_t *sos   = xmpp_stanza_get_child_by_name(query, "os");
+
+	if (sname)
+		name = xmpp_stanza_get_text(sname);
+	if (svers)
+		vers = xmpp_stanza_get_text(svers);
+	if (sos)
+		os = xmpp_stanza_get_text(sos);
+
+	if (os)
+		snprintf(out, len, "%s-%s (%s)", name, vers, os);
+	else
+		snprintf(out, len, "%s-%s", name, vers);
+
+	xmpp_free(ctx, name);
+	xmpp_free(ctx, vers);
+	xmpp_free(ctx, os);
+
+	xmpp_stanza_release(stanza);
+	xmpp_ctx_free(ctx);
+
+	return 0;
 }
 
 int

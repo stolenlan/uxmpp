@@ -3,10 +3,9 @@
 
 #define VER_MAJ	"0"
 #define VER_MIN	"0"
-#define VER_PNT	"10"
+#define VER_PNT	"11"
 #define VERSION	VER_MAJ "." VER_MIN "." VER_PNT
 
-/* Regular string max */
 #define REGSTR_MAX	256
 #define STANZA_MAX	8192
 
@@ -26,11 +25,13 @@ enum err_code_t {
 extern int f_debug;
 extern int f_mdown;
 extern int f_usecs;
+extern int f_adult;
 
-int		check_outpath(const char *path);
-int		get_fortune(char *fortune_out, int max);
-int		get_jid_credentials(char *jid, char *password);
-int 		jid_get_local(char out[REGSTR_MAX], const char *jid);
-int		pw_prompt(const char *prompt, char in_password[256]);
+int	check_outpath(const char *path);
+int	get_fortune(char *fortune_out, int max);
+int	get_jid_credentials(char *jid, char *password);
+int	jid_get_local(char out[REGSTR_MAX], const char *jid);
+int	parse_version_stanza(char *out, int len, const char *stanza_text);
+int	pw_prompt(const char *prompt, char in_password[256]);
 
 #endif

@@ -17,14 +17,21 @@
 #define _RAWSEND_H 1
 
 #include <strophe.h>
+
 typedef struct {
 	xmpp_conn_t *conn;
 	const char *target;
+	char *result;
+	int result_max;
+	void *ref;
 } sendraw_ctx_t;
 
 /* Send a raw iq stanza, using an id_handler - Use only if id */
+void	send_id_rawiq_prepare(sendraw_ctx_t *rsctx, xmpp_handler hdl);
 int	send_rawiq_id(const char *jid,
 		const char *password,
-		const char *target);
+		const char *target,
+		char *result,
+		int result_max);
 
 #endif

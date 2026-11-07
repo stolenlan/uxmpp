@@ -65,6 +65,12 @@
 .Fl r Ar raw_stanza
 .Op Fl t Ar target_jid
 .Cm sendraw
+.Nm
+.Op Fl d
+.Op Fl j Ar user_jid
+.Op Fl p Ar password
+.Op Fl t Ar target_jid
+.Cm version
 .Sh DESCRIPTION
 .Nm
 consists of a set of tools for querying, testing, configuring, 
@@ -103,10 +109,13 @@ is read.
 .It Cm ping
 Send an xmpp:ping to the applicable
 .Ar target_jid .
-.It Cm rawsend
+.It Cm sendraw
 Send a raw stanza that has been provided using the
 .Fl r
 option.
+.It Cm version
+Request jabber:iq:version information for the provided
+.Ar target_jid .
 .El
 .Ss The options are as follows:
 .Bl -tag -width Ds

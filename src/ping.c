@@ -29,8 +29,7 @@ const char *ping_host;
 
 static int
 on_ping_reply( xmpp_conn_t * const conn,
-	xmpp_stanza_t * const stanza,void * const userdata)
-{
+	xmpp_stanza_t * const stanza,void * const userdata) {
 	xmpp_ctx_t *ctx = userdata;
 	(void)ctx;
 	
@@ -50,8 +49,7 @@ on_ping_reply( xmpp_conn_t * const conn,
 }
 
 static void
-send_ping(xmpp_conn_t *conn, xmpp_ctx_t *ctx, const char *target)
-{
+send_ping(xmpp_conn_t *conn, xmpp_ctx_t *ctx, const char *target) {
 	
 	xmpp_stanza_t *iq = xmpp_stanza_new(ctx);
 	xmpp_stanza_t *ping = xmpp_stanza_new(ctx);
@@ -85,8 +83,7 @@ on_connect(xmpp_conn_t * const conn,
 	xmpp_conn_event_t status,
 	int error, 
 	xmpp_stream_error_t *stream_error, 
-	void * const userdata)
-{
+	void * const userdata) {
 	static int connected = 0;
 	xmpp_ctx_t *ctx = userdata;
 
@@ -113,8 +110,7 @@ on_connect(xmpp_conn_t * const conn,
 }
 
 int
-xmpp_ping(const char *jid, const char *password, const char *host)
-{
+xmpp_ping(const char *jid, const char *password, const char *host) {
 	/* XEP 0199 PING */
 	ping_host = host;
 	xmpp_ctx_t *ctx;

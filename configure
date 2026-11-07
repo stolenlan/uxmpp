@@ -1,0 +1,83 @@
+#!/bin/sh
+
+PREFIX=/usr/local
+MANPREFIX=/usr/local/man
+DEFAULT_CONFIG=1
+COLW=26
+
+printUsage() {
+	echo "Usage: $(basename ${0}) [-p <install_prefix>] [-m <manprefix>]"
+}
+
+printHelp() {
+	printUsage
+}
+
+_findProg() {
+	PROG_NAME="$1"
+	PATH=$PATH:/usr/games
+	BIFS=$IFS
+	IFS=':'
+	for PTH in $PATH; do
+		PROG_PATH="${PTH}/${PROG_NAME}"
+		if [ -f "$PROG_PATH" ]; then
+			echo "$PROG_PATH"
+			return 0
+		fi
+	done
+	IFS=$BIFS
+	return 1
+}
+
+findProg() {
+	PP=$(_findProg "${1}") && {
+		echo "Found $1: ${PP}"
+		PPESC=$(echo "$PP" | sed -E 's/\//\\\//g')
+		sed -i -E "s/^${2}\?=.*$/${2}\?\=${PPESC}/g" Makefile
+	} || {
+		echo "Fortune not found!"
+	}
+}
+
+while getopts "hp:m:" NAME; do
+	case "$NAME" in
+		'h')
+			printHelp
+			exit 0
+		;;
+		'p')
+			PREFIX="$OPTARG"
+			DEFAULT_CONFIG=0
+		;;
+		'm')
+			MANPREFIX="$OPTARG"
+			DEFAULT_CONFIG=0
+		;;
+		'?')
+			printUsage
+			exit 1
+		;;
+	esac
+done
+
+echo -e "Configuring uxmpp...
+---"
+
+OSYSTEM=$(uname -s)
+
+if [ $DEFAULT_CONFIG -eq 1 ] && [ "$OSYSTEM" = "Linux" ]; then
+	PREFIX=/usr
+	MANPREFIX=/usr/share/man
+fi
+
+PREFIX_ESCAPED=$(echo "$PREFIX" | sed -E 's/\//\\\//g')
+MANPREFIX_ESCAPED=$(echo "$MANPREFIX" | sed -E 's/\//\\\//g')
+
+sed -i -E "s/^PREFIX\?=.*$/PREFIX\?\=${PREFIX_ESCAPED}/g" Makefile
+sed -i -E "s/^MANPREFIX\?=.*$/MANPREFIX\?\=${MANPREFIX_ESCAPED}/g" Makefile
+
+echo -e "OS: $OSYSTEM
+Install Prefix: $PREFIX
+Install Man Prefix: $MANPREFIX
+---
+Configuration is complete"

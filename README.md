@@ -5,7 +5,7 @@
 | | | | \ \/ / | '_ ` _ \  | '_ \  | '_ \
 | |_| |  >  <  | | | | | | | |_) | | |_) |
  \__,_| /_/\_\ |_| |_| |_| | .__/  | .__/
- Utilities for XMPP        |_|     |_|
+        Utilities for XMPP |_|     |_|
 ==========================================
 ```
 
@@ -82,6 +82,13 @@ Regardless, I'd encourage anyone to check out
 ---
 
 ## Changes
+
+Version 0.0.11
+
+- Added support to query version from both the main utility, and from the
+  in-band bot interface.
+- Updated sendraw.c/h
+
 
 Version 0.0.10
 

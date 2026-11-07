@@ -28,8 +28,10 @@
 #include "util.h"
 #include "uxmpp.h"
 #include "xep-0115-ver.h"
-#include "bot.h"
+#include "game.h"
 #include "disco.h"
+#include "sendraw.h"
+#include "bot.h"
 
 #define MAX_N_BOTS 256
 
@@ -42,10 +44,10 @@
 "uxmpp-%s:bot\n"\
 "Utilities For XMPP: in-band bot help\n\n"\
 "Commands (prefixed with `!%s'):\n"\
-"help          Show this help\n"\
-"disco  <jid>  Perform disco#info on <jid?\n"\
-"fortune       Display a classic fortune\n"\
-"gtfo          Leave MUC, and disconnect\n"\
+"help            Show this help\n"\
+"disco   <jid>   Perform disco#info on <jid>\n"\
+"version <jid>   Get version information for <jid>\n"\
+"fortune         Display a classic fortune\n"\
 "```"
 
 static bot_ctx_t *running_bot[MAX_N_BOTS];
@@ -214,6 +216,27 @@ th_watch_cmd_fifo(void *userdata) {
 			xmpp_disconnect(bctx->conn);
 			return NULL;
 		}
+
+		if (strncmp("spawn\n", buf, strlen(buf)) == 0) {
+/**
+ * 
+ * 
+ * 
+ * 
+ * 
+ * 
+ * 
+ * 
+ * 
+ * 
+ * 
+ * 
+ * 
+ * 
+ * 
+ * 
+ */
+		}
 	} else {
 		fprintf(stderr, "Error reading %s\n", bctx->in_fifo);
 	}
@@ -311,6 +334,46 @@ cb_iq_time(void) {
 		offbuf, utcbuf);
 
 	return xmpp_time;
+}
+
+static int
+cb_iq_version(xmpp_conn_t *conn, xmpp_stanza_t *stanza, void *userdata) {
+	/*  Version id handler */
+ 	char outbuf[2048], verbuf[256];
+
+	// xmpp_ctx_t *ctx = xmpp_conn_get_context(conn);
+	const char *type = xmpp_stanza_get_type(stanza);
+	const char *from = xmpp_stanza_get_from(stanza);
+	(void)conn;
+	sendraw_ctx_t *rsctx = (sendraw_ctx_t *)userdata;
+
+	if (type != NULL && strcmp(type, "error") == 0) {
+		memset(outbuf, '\0', sizeof(outbuf));
+		snprintf(outbuf, sizeof(outbuf),
+			"failed to query version for %s", from);
+		send_muc_message(conn, outbuf, rsctx->ref);
+		free(rsctx);
+		return 0;
+	}
+
+	char *buf;
+	size_t buflen;
+	if (xmpp_stanza_to_text(stanza, &buf, &buflen) != 0) {
+		fprintf(stderr, "Error converting stanza to text\n");
+		free(rsctx);
+		return 0;
+	}
+
+	parse_version_stanza(verbuf, sizeof(verbuf), buf);
+
+	memset(outbuf, '\0', sizeof(outbuf));
+	snprintf(outbuf, sizeof(outbuf), "%s: %s", from, verbuf);
+	send_muc_message(conn, outbuf, rsctx->ref);
+	
+	free(rsctx);
+	free(buf);
+
+	return 0;
 }
 
 static int
@@ -498,8 +561,7 @@ cb_message_grpchat_botcmd(bot_ctx_t *bctx, const char *cmd) {
 		/* p Will become the pointer to start of JID */
 		for (p = p+strlen("disco");*p && isspace(*p); p++);
 		if (!strlen(p)) {
-			send_muc_message(conn, "Usage: disco <jid>",
-				bctx);
+			send_muc_message(conn, "Usage: disco <jid>", bctx);
 		} else {
 			if (strncmp(p, bctx->jid, strlen(bctx->jid)) == 0) {
 				send_muc_message(conn,
@@ -520,8 +582,30 @@ cb_message_grpchat_botcmd(bot_ctx_t *bctx, const char *cmd) {
 				send_muc_message(conn,
 					"Service busy.", bctx);
 			}
-			
 		}
+	} else if (strncmp(p, "version", strlen("version")) == 0) {
+		
+		/* p Will become the pointer to start of JID */
+		for (p = p+strlen("version");*p && isspace(*p); p++);
+		if (!strlen(p)) {
+			send_muc_message(conn, "Usage: version <jid>", bctx);
+		} else {
+			char tgt[2048];
+			snprintf(tgt, sizeof(tgt),
+				"<iq type='get' to='%s'>"
+				"<query xmlns='jabber:iq:version'/></iq>", p);
+			char buf[2048];
+			memset(buf, '\0', sizeof(buf));
+
+			sendraw_ctx_t *rsctx = malloc(sizeof(sendraw_ctx_t));
+			rsctx->conn = conn;
+			rsctx->target = tgt;
+			rsctx->result = buf;
+			rsctx->result_max = sizeof(buf);
+			rsctx->ref = bctx;
+			/* This must be free'd */
+			send_id_rawiq_prepare(rsctx, cb_iq_version);
+		}	
 	} else if (strncmp(p, "fortune", strlen(p)) == 0) {
 		int bufsz = 2048;
 		char buf[bufsz], bufout[bufsz];
@@ -550,7 +634,7 @@ cb_message_grpchat(bot_ctx_t *bctx, const char *from, const char *body) {
 	xmpp_conn_t *conn = bctx->conn;
 
 	/* Ignore the first few seconds of messages */
-	if (time(NULL)-bctx->ts_start < 10)
+	if (time(NULL)-bctx->ts_start < BOT_DWELL_SECS)
 		return;
 
 	char body_buf[1024];
@@ -566,6 +650,8 @@ cb_message_grpchat(bot_ctx_t *bctx, const char *from, const char *body) {
 	if (bctx->mode == BOT_MODE_DEFAULT) {
 		memset(buf, '\0', sizeof(buf));
 		size_t blen = strlen(body_buf);
+
+		handle_game_mbody(bctx, from_nick, body);
 		
 		if (strncmp(body_buf, "test", blen) == 0 && blen == 4) {
 			snprintf(buf, sizeof(buf), "%s: %s",
@@ -884,8 +970,18 @@ on_connect(xmpp_conn_t * const conn,
 	(void)stream_error;
 }
 
+
+void
+bot_ctx_free(bot_ctx_t *bctx) {
+	// FREE SHIT HEREE
+	(void)bctx;
+}
+
+
 bot_ctx_t
 bot_ctx_new(void) {
+	// TODO: allocate a new bot, add the pointer to running_bot[], 
+	// then return it.
 	bot_ctx_t bctx;
 	memset(&bctx, 0, sizeof(bot_ctx_t));
 	bctx.index = running_bots++;
@@ -894,8 +990,8 @@ bot_ctx_new(void) {
 }
 
 int
-start_bot(bot_ctx_t *usr) {
-	bot_ctx_t *bctx = usr;
+start_bot(bot_ctx_t *bctx) {
+
 	for (int i = bctx->index; i < MAX_N_BOTS; i++)
 		running_bot[i] = NULL;
 

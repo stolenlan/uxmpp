@@ -23,6 +23,8 @@
 
 #include "uxmpp.h"
 
+#define BOT_DWELL_SECS 10
+
 enum bot_mode_t {BOT_MODE_NONE = 0, BOT_MODE_DEFAULT};
 
 typedef struct {
@@ -50,7 +52,9 @@ typedef struct {
 } bot_ctx_t;
 
 bot_ctx_t 	bot_ctx_new(void);
-int 		start_bot(bot_ctx_t *usr);
+void            bot_ctx_free(bot_ctx_t *bctx);
+int 		start_bot(bot_ctx_t *bctx);
+void		stop_bot(bot_ctx_t *bctx);
 void 		stop_bots(int signal);
 
 #endif

@@ -14,6 +14,9 @@
 
 CC=cc
 
+PREFIX?=/usr/local
+MANPREFIX?=/usr/local/man
+
 all:
 	@make -C src
 
@@ -22,7 +25,7 @@ clean:
 	@make -C src $@
 
 install:
-	@make -C src $@
+	@make PREFIX=$(PREFIX) MANPREFIX=$(MANPREFIX) -C src $@
 
 test:
 	@make -C src $@

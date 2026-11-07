@@ -22,15 +22,13 @@
 #include "uxmpp.h"
 #include "sendraw.h"
 
-
-
 static int
 cb_iq_query(xmpp_conn_t *conn, xmpp_stanza_t *stanza, void *userdata) {
 
 	xmpp_ctx_t *ctx = xmpp_conn_get_context(conn);
 	const char *type = xmpp_stanza_get_type(stanza);
 	(void)conn; /* Silence compiler! */
-	(void)userdata;
+	sendraw_ctx_t *rsctx = (sendraw_ctx_t *)userdata;
 
 	if (type != NULL && strcmp(type, "error") == 0) {
 		fprintf(stderr, "Server returned an IQ error.\n");
@@ -45,8 +43,10 @@ cb_iq_query(xmpp_conn_t *conn, xmpp_stanza_t *stanza, void *userdata) {
 		return 0;
 	}
 
-
-	printf("%s\n", buf);
+	if (rsctx->result_max && rsctx->result)
+		snprintf(rsctx->result, rsctx->result_max, "%s", buf);
+	else
+		printf("%s\n", buf);
 
 	free(buf);
 	xmpp_disconnect(conn);
@@ -54,15 +54,15 @@ cb_iq_query(xmpp_conn_t *conn, xmpp_stanza_t *stanza, void *userdata) {
 	return 0;
 }
 
-static void
-send_id_rawiq_prepare(sendraw_ctx_t *rsctx) {
+void
+send_id_rawiq_prepare(sendraw_ctx_t *rsctx, xmpp_handler hdl) {
 	xmpp_conn_t *conn = rsctx->conn;
 	xmpp_ctx_t *ctx = xmpp_conn_get_context(conn);
 	char *idstr = xmpp_uuid_gen(ctx);
 	xmpp_stanza_t *iq = xmpp_stanza_new_from_string(ctx, rsctx->target);
 
 	xmpp_stanza_set_id(iq, idstr);
-	xmpp_id_handler_add(conn, cb_iq_query, idstr, rsctx);
+	xmpp_id_handler_add(conn, hdl, idstr, rsctx);
 	xmpp_send(conn, iq);
 	xmpp_stanza_release(iq);
 	xmpp_free(ctx, idstr);
@@ -85,7 +85,7 @@ on_connect(xmpp_conn_t * const conn, xmpp_conn_event_t status, int error,
 
 	if (status == XMPP_CONN_CONNECT) {
 		connected = 1;
-		send_id_rawiq_prepare(rsctx);
+		send_id_rawiq_prepare(rsctx, cb_iq_query);
 	} else if (status == XMPP_CONN_FAIL) {
 		fprintf(stderr, "Connection or authentication "
 			"failed (error %d).\n", error);
@@ -101,7 +101,9 @@ on_connect(xmpp_conn_t * const conn, xmpp_conn_event_t status, int error,
 int
 send_rawiq_id(const char *jid,
 		const char *password,
-		const char *target) {
+		const char *target,
+		char *result,
+		int result_max) {
 
 	sendraw_ctx_t rsctx;
 	xmpp_ctx_t *ctx = NULL;
@@ -140,6 +142,8 @@ send_rawiq_id(const char *jid,
 	rsctx.conn = conn;
 
 	rsctx.target = target;
+	rsctx.result = result;
+	rsctx.result_max = result_max;
 
 	xmpp_conn_set_jid(conn, jid);
 	xmpp_conn_set_pass(conn, password);

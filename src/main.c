@@ -39,6 +39,7 @@ char *__progname;
 int	f_debug	= 0;		/* Debug Flag */
 int 	f_mdown = 0;		/* Markup with markdown... */
 int	f_usecs	= 60000;	/* uSeconds */
+int	f_adult = 0;
 
 /* Local flags */
 int 	f_bot_mode = 0;
@@ -65,7 +66,7 @@ main(int argc, char *argv[])
 	memset(rstanza,	     '\0', STANZA_MAX);
 	memset(target_jid,   '\0', REGSTR_MAX);
 	
-	while((c = getopt(argc, argv, "df:i:j:mn:o:p:r:t:u:v")) != -1) {
+	while((c = getopt(argc, argv, "df:i:j:mn:o:p:r:t:u:vz")) != -1) {
 		switch (c) {
 		case 'd':
 			f_debug = 1;
@@ -102,6 +103,9 @@ main(int argc, char *argv[])
 			break;
 		case 'v':
 			f_show_vers = 1;
+			break;
+		case 'z':
+			f_adult = 1;
 			break;
 		default:
 			printf(USAGE_STR, __progname);
@@ -151,7 +155,7 @@ main(int argc, char *argv[])
 	if ( unveil("/etc/hosts", "r") < 0
 		|| unveil("/etc/resolv.conf", "r") < 0
 		|| unveil("/etc/ssl/cert.pem", "r") < 0
-		|| unveil("/usr/games/fortune", "x") < 0)
+		|| unveil("/usr/games/fortune", "rx") < 0)
 		return 1;
 
 	if (strlen(fifo_path))
@@ -243,11 +247,41 @@ main(int argc, char *argv[])
 		if (!get_jid_credentials(jid, password))
 			return 1;
 
-		return send_rawiq_id(jid, password, rstanza);
+		return send_rawiq_id(jid, password, rstanza, NULL, 0);
+	}
+
+	if (strncmp(command, "version", strlen(command)) == 0) {
+		if (!strlen(target_jid)) {
+			printf("A target_jid is required, "
+				"specify with -t\n");
+			return 1;
+		}
+
+		if (!get_jid_credentials(jid, password))
+			return 1;
+
+		memset(rstanza, '\0', STANZA_MAX);
+		snprintf(rstanza, STANZA_MAX, "<iq type='get' to='%s'>"
+			"<query xmlns='jabber:iq:version'/></iq>", target_jid);
+
+		char version[2048];
+		memset(version, '\0', sizeof(version));
+
+		int retval = send_rawiq_id(jid, password,
+			rstanza, version, sizeof(version));
+
+		if (retval == 0) {
+			char buf[1024];
+			parse_version_stanza(buf, sizeof(buf), version);
+			printf("%s\n", buf);
+		}
+
+		return retval;
 	}
 
 	printf("Unknown command: `%s` ("
 	       "valid commands: `disco`, `ping`, and `bot`)\n", command);
+
 	printf(USAGE_STR, __progname);
 	return 1;
 }
