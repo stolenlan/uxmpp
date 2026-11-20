@@ -72,7 +72,6 @@ fi
 
 PREFIX_ESCAPED=$(echo "$PREFIX" | sed -E 's/\//\\\//g')
 MANPREFIX_ESCAPED=$(echo "$MANPREFIX" | sed -E 's/\//\\\//g')
-
 sed -i -E "s/^PREFIX\?=.*$/PREFIX\?\=${PREFIX_ESCAPED}/g" Makefile
 sed -i -E "s/^MANPREFIX\?=.*$/MANPREFIX\?\=${MANPREFIX_ESCAPED}/g" Makefile
 

@@ -18,6 +18,7 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <strophe.h>
 #include <string.h>
 #include <stdlib.h>
@@ -33,25 +34,8 @@
 #include "sendraw.h"
 #include "bot.h"
 
-#define MAX_N_BOTS 256
-
-#define DEFAULT_REPLY \
-"Sorry?\n"\
-"Just a dumb bot here, no LLMs, telemetry, or funny-business.\n"
-
-#define BOT_HELP_TMPL \
-"```\n"\
-"uxmpp-%s:bot\n"\
-"Utilities For XMPP: in-band bot help\n\n"\
-"Commands (prefixed with `!%s'):\n"\
-"help            Show this help\n"\
-"disco   <jid>   Perform disco#info on <jid>\n"\
-"version <jid>   Get version information for <jid>\n"\
-"fortune         Display a classic fortune\n"\
-"```"
-
-static bot_ctx_t *running_bot[MAX_N_BOTS];
-static int running_bots = 0;
+/* Running bots */
+static bot_ctx_t *bot_p[MAX_N_BOTS] = {0};
 
 static int
 send_muc_message(xmpp_conn_t *const conn,
@@ -198,9 +182,7 @@ th_watch_cmd_fifo(void *userdata) {
 
 	int fd = open(bctx->cmd_fifo, O_RDONLY, 0);
 	if (fd == -1) {
-		if (f_debug)
-			fprintf(stderr, "Unable to open: %s\n",
-				bctx->cmd_fifo);
+		dbgout("Unable to open: %s\n", bctx->cmd_fifo);
 		return NULL;
 	}
 
@@ -208,34 +190,11 @@ th_watch_cmd_fifo(void *userdata) {
 	memset(buf, '\0', 4096);
 	ssize_t buf_br;
 	if( (buf_br = read(fd, buf, 4095)) > 0) {
-		if (f_debug)
-			fprintf(stderr, "Received: %s from %s\n",
-				buf, bctx->cmd_fifo);
+		dbgout("Received: %s from %s\n", buf, bctx->cmd_fifo);
 		if (strncmp("quit\n", buf, strlen(buf)) == 0) {
 			close(fd);
 			xmpp_disconnect(bctx->conn);
 			return NULL;
-		}
-
-		if (strncmp("spawn\n", buf, strlen(buf)) == 0) {
-/**
- * 
- * 
- * 
- * 
- * 
- * 
- * 
- * 
- * 
- * 
- * 
- * 
- * 
- * 
- * 
- * 
- */
 		}
 	} else {
 		fprintf(stderr, "Error reading %s\n", bctx->in_fifo);
@@ -263,8 +222,7 @@ cb_heartbeat_rx_ping(xmpp_conn_t *const conn,
 	if (type != NULL && strcmp(type, "error") == 0) {
 		fprintf(stderr, "Ping returned an error!\n");
 	}
-	if (f_debug)
-		fprintf(stderr, "RX: PONG (%s)!\n", domain);
+	dbgout("RX: PONG (%s)!\n", domain);
 
 	xmpp_free(bctx->ctx, (void *)domain);
 	return 0;
@@ -286,7 +244,6 @@ cb_heartbeat(xmpp_conn_t *const conn, void *userdata) {
   		"<ping xmlns='urn:xmpp:ping'/>"
   		"</iq>", cpid, bctx->jid, domain);
 
-	// Create a ping, and send it
 	xmpp_stanza_t *ping = xmpp_stanza_new_from_string(ctx, buf);
 	xmpp_id_handler_add(conn, cb_heartbeat_rx_ping, cpid, userdata);
 
@@ -341,7 +298,6 @@ cb_iq_version(xmpp_conn_t *conn, xmpp_stanza_t *stanza, void *userdata) {
 	/*  Version id handler */
  	char outbuf[2048], verbuf[256];
 
-	// xmpp_ctx_t *ctx = xmpp_conn_get_context(conn);
 	const char *type = xmpp_stanza_get_type(stanza);
 	const char *from = xmpp_stanza_get_from(stanza);
 	(void)conn;
@@ -396,7 +352,6 @@ cb_iq(xmpp_conn_t *const conn,
 	if (!id || !from)
 		return 1;
 
-	// I need to extract the node info
 	char *from_node = xmpp_jid_node(ctx, from);
 	char *from_domain = xmpp_jid_domain(ctx, from);
 	char *from_resource = xmpp_jid_resource(ctx, from);
@@ -541,6 +496,7 @@ cb_presence(xmpp_conn_t *const conn,
 			else if (bctx->joined == 0) {
 				fprintf(stderr, "JOINED: %s\n", bctx->muc);
 				bctx->joined = 1;
+				bctx->ts_start = time(NULL);
 			}
 		}
 	}
@@ -607,7 +563,7 @@ cb_message_grpchat_botcmd(bot_ctx_t *bctx, const char *cmd) {
 			send_id_rawiq_prepare(rsctx, cb_iq_version);
 		}	
 	} else if (strncmp(p, "fortune", strlen(p)) == 0) {
-		int bufsz = 2048;
+		int bufsz = 4096;
 		char buf[bufsz], bufout[bufsz];
 		memset(buf, '\0', bufsz);
 		if (get_fortune(buf, bufsz) == 0) {
@@ -622,19 +578,84 @@ cb_message_grpchat_botcmd(bot_ctx_t *bctx, const char *cmd) {
 		snprintf(buf, 2048, BOT_HELP_TMPL, VERSION, bctx->nick);
 		send_muc_message(conn, buf, bctx);
 	} else if (strncmp(p, "gtfo", strlen(p)) == 0) {
-		xmpp_disconnect(conn);
+		if (bctx == bot_p[0])
+			stop_bots();
+		else
+			send_muc_message(conn, "This bot is a: "
+				"spawn == peasant "
+				"== no perms, for now...",
+				bctx);
+
+	} else if (strncmp(p, "spawn", strlen("spawn")) == 0) {
+		if (bot_p[0] != bctx) {
+			send_muc_message(conn, "Spawn may not spawn more "
+				"Spawn... For now.", bctx);
+
+			return;
+		}
+
+		for (p = p+strlen("spawn");*p && isspace(*p); p++);
+
+		if (!strlen(p)) {
+			send_muc_message(conn,
+				"Usage: spawn <muc_jid> <nick> <mode>", bctx);
+		} else {
+			bot_ctx_t *nb = spawn_bot(p);
+			if (!nb) {
+				send_muc_message(conn,
+		 			"Usage: spawn <jid> <nick> <mode>", bctx);
+			} else {
+				send_muc_message(conn, "Bot spawned...", bctx);
+			}
+		}
 	} else {
 		send_muc_message(conn, "Unknown command, see: 'help'", bctx);
 	}
+}
+
+static bot_ctx_t *
+select_bot(bot_ctx_t *bctx, const char *from) {
+
+	const char *from_node = xmpp_jid_node(bctx->ctx, from);
+	const char *from_domain = xmpp_jid_domain(bctx->ctx, from);
+	
+	int i;
+	for (i = MAX_N_BOTS; i >= 0; i--) {
+		bot_ctx_t *pb = bot_p[i];
+		if (!pb)
+			continue;
+
+		const char *muc_node = xmpp_jid_node(bctx->ctx, pb->muc);
+		const char *muc_domain = xmpp_jid_domain(bctx->ctx, pb->muc);
+		if (strncmp(from_node, muc_node, strlen(from_node)) == 0
+			&& strncmp(from_domain, muc_domain, strlen(from_node)) == 0) {
+
+			xmpp_free(bctx->ctx, (void *)from_node);
+			xmpp_free(bctx->ctx, (void *)from_domain);
+			xmpp_free(bctx->ctx, (void *)muc_node);
+			xmpp_free(bctx->ctx, (void *)muc_domain);
+			return pb;
+		}
+		xmpp_free(bctx->ctx, (void *)muc_node);
+		xmpp_free(bctx->ctx, (void *)muc_domain);
+	}
+
+	xmpp_free(bctx->ctx, (void *)from_node);
+	xmpp_free(bctx->ctx, (void *)from_domain);
+
+	return NULL;
 }
 
 static void
 cb_message_grpchat(bot_ctx_t *bctx, const char *from, const char *body) {
 	char c, buf[4096], keybuf[REGSTR_MAX];
 	xmpp_conn_t *conn = bctx->conn;
+//TODO: VERIFY/VALIDATE from
+	bot_ctx_t *target_bot = select_bot(bctx, from);
 
 	/* Ignore the first few seconds of messages */
-	if (time(NULL)-bctx->ts_start < BOT_DWELL_SECS)
+	if (!target_bot->joined || !target_bot->ts_start 
+		|| time(NULL)-target_bot->ts_start < BOT_DWELL_SECS)
 		return;
 
 	char body_buf[1024];
@@ -643,48 +664,49 @@ cb_message_grpchat(bot_ctx_t *bctx, const char *from, const char *body) {
 		body_buf[i] = tolower(body[i]);
 
 	memset(keybuf, '\0', REGSTR_MAX);
-	snprintf(keybuf, REGSTR_MAX, "!%s ", bctx->nick);
+	snprintf(keybuf, REGSTR_MAX, "!%s ", target_bot->nick);
 
-	char *from_nick = xmpp_jid_resource(bctx->ctx, from);
+	char *from_nick = xmpp_jid_resource(target_bot->ctx, from);
 
-	if (bctx->mode == BOT_MODE_DEFAULT) {
+	if (target_bot->mode == BOT_MODE_DEFAULT) {
 		memset(buf, '\0', sizeof(buf));
 		size_t blen = strlen(body_buf);
 
-		handle_game_mbody(bctx, from_nick, body);
+		handle_game_mbody(target_bot, from_nick, body);
 		
 		if (strncmp(body_buf, "test", blen) == 0 && blen == 4) {
 			snprintf(buf, sizeof(buf), "%s: %s",
 				from_nick, "ACK!");
-			send_muc_message(conn, buf, bctx);
+
+			send_muc_message(conn, buf, target_bot);
 		}
 
 		if (strncmp(body_buf, "ping", blen) == 0 && blen == 4) {
 			snprintf(buf, sizeof(buf), "%s: %s",
 				from_nick, "PONG!");
-			send_muc_message(conn, buf, bctx);
+			send_muc_message(conn, buf, target_bot);
 		}
 
 		if (strncmp(body, keybuf, strlen(keybuf)) == 0) {
 			const char *p = body+strlen(keybuf);
-			cb_message_grpchat_botcmd(bctx, p);
+			cb_message_grpchat_botcmd(target_bot, p);
 		}
 
-		if (strlen(body) > strlen(bctx->nick)+1) {
-			c = body[strlen(bctx->nick)];
-			if (strncmp(body, bctx->nick, strlen(bctx->nick)) == 0
+		if (strlen(body) > strlen(target_bot->nick)+1) {
+			c = body[strlen(target_bot->nick)];
+			if (strncmp(body, target_bot->nick,
+				strlen(target_bot->nick)) == 0
 				&& (c == ':' || c == ',')) {
 				snprintf(buf, sizeof(buf),
 					"%s: %s\nsee: !%s help",
 					from_nick,
-					DEFAULT_REPLY,
-					bctx->nick);
-				send_muc_message(conn, buf, bctx);
+					BOT_DEFAULT_REPLY,
+					target_bot->nick);
+				send_muc_message(conn, buf, target_bot);
 			}
 		}
-
 	}
-
+	
 	xmpp_free(bctx->ctx, from_nick);
 }
 
@@ -717,8 +739,6 @@ cb_message(xmpp_conn_t *const conn,
 	if (!type)
 		return 1;	
 	id = xmpp_stanza_get_id(stanza);
-	// if (!id)
-		// return 1;
 	from = xmpp_stanza_get_from(stanza);
 	if (!from)
 		return 1;
@@ -729,6 +749,7 @@ cb_message(xmpp_conn_t *const conn,
 			return 1;
 
 		printf("%s: %s\n", xmpp_stanza_get_from(stanza), body);
+		
 		cb_message_grpchat(bctx, from, body);
 
 		if (strlen(bctx->out_fifo)) {
@@ -780,8 +801,14 @@ cb_handler(xmpp_conn_t *const conn,
 	(void)userdata;
 
 	int quit = 1;
-	for (int i = 0; i < running_bots; i++)
-		if (!(running_bot[i])->quit) quit = 0;
+
+	/* If any bot is still active (quit == 0) keep conn active */
+	for (int i = 0; i < MAX_N_BOTS; i++) {
+		if (bot_p[i] && !(bot_p[i])->quit) {
+			quit = 0;
+			break;
+		}
+	}
 
 	if (quit) {
 		if (f_debug)
@@ -865,8 +892,6 @@ static int
 del_fifos(bot_ctx_t *bctx) {
 	if (strlen(bctx->in_fifo))
 		unlink(bctx->in_fifo);
-	// if (strlen(bctx->out_fifo))
-	// 	unlink(bctx->out_fifo);
 	if (strlen(bctx->cmd_fifo))
 		unlink(bctx->cmd_fifo);
 
@@ -889,7 +914,7 @@ on_connect(xmpp_conn_t * const conn,
 			bctx->muc, bctx->nick);
 
 		bctx->connected = 1;
-		running_bot[bctx->index] = userdata;
+		// bctx->ts_start = time(NULL);
 
 		/* mk_fifos use xmpp_jid_* routines, and require a ctx */
 		if (mk_fifos(bctx) != 0) {
@@ -953,7 +978,7 @@ on_connect(xmpp_conn_t * const conn,
 					"ERROR: Unable to spawn thread\n");
 		}
 
-		bctx->ts_start = time(NULL);
+		
 
 	} else if (status == XMPP_CONN_FAIL) {
 		fprintf(stderr, "Connection or authentication "
@@ -973,27 +998,43 @@ on_connect(xmpp_conn_t * const conn,
 
 void
 bot_ctx_free(bot_ctx_t *bctx) {
-	// FREE SHIT HEREE
+	int i;
+	for (i = 0; i < MAX_N_BOTS && bot_p[i]; i++) {
+		if (bot_p[i] == bctx) {
+			free(bot_p[i]);
+			bot_p[i] = NULL;
+		}
+	}
 	(void)bctx;
 }
 
 
-bot_ctx_t
+bot_ctx_t *
 bot_ctx_new(void) {
-	// TODO: allocate a new bot, add the pointer to running_bot[], 
-	// then return it.
-	bot_ctx_t bctx;
-	memset(&bctx, 0, sizeof(bot_ctx_t));
-	bctx.index = running_bots++;
+
+	/* Iterate over bot_p(ointers) and use the first available NULL */
+	int i;
+	for (i = 0; i < MAX_N_BOTS && bot_p[i]; i++);
+
+	bot_ctx_t *bctx = malloc(sizeof(bot_ctx_t));
+	memset(bctx, 0, sizeof(bot_ctx_t));
+	bctx->index = i;
+	bot_p[bctx->index] = bctx;
 
 	return bctx;
 }
 
+
+/**
+ * WORKING PRINCIPALs
+ * 
+ * Multiple bots may share one connection, but there must be a "seed" bot.
+ * The seed is responsible for both providing an entry point into the
+ * corresponding strophe runloop (by way of fifo's or in-band access), and
+ * provides the facilities for spawning more bots etc.
+ */
 int
 start_bot(bot_ctx_t *bctx) {
-
-	for (int i = bctx->index; i < MAX_N_BOTS; i++)
-		running_bot[i] = NULL;
 
 	if (bctx->jid == NULL || bctx->pass == NULL) {
 		fprintf(stderr, "Invalid or missing credentials.\n");
@@ -1033,58 +1074,214 @@ start_bot(bot_ctx_t *bctx) {
 	else
 		xmpp_run(bctx->ctx);
 
+	/* The run-loop has exited, cleanup the seed bot... */
 	xmpp_conn_release(bctx->conn);
 	xmpp_ctx_free(bctx->ctx);
 	xmpp_shutdown();
-
 	del_fifos(bctx);
+	free(bctx);
 
 	return RETURN_SUCCESS;
 }
 
+
 void
-stop_bots(int signal) {
-	const char *sigstr = "SIGNAL";
+stop_bot(bot_ctx_t *bctx) {
+	char muc_jid_buf[REGSTR_MAX];
+	int i;
 
-	for (int i = 0; i < running_bots && running_bot[i] != NULL; i++) {
-		bot_ctx_t *rb = running_bot[i];
-		if (!rb)
-			exit(0);
-
-		if (signal == 2)
-			sigstr = "SIGINT";
-		if (signal == 15)
-			sigstr = "SIGTERM";
-		else if (signal == 3)
-			sigstr = "SIGQUIT";
-
-		if (rb->quit) {
-			fprintf(stderr,
-				"\nRECEIVED %s (%d), for the 2nd time: killing...",
-				sigstr, signal);
-			exit(1);
-		}
-
-		rb->quit = 1;
-
-		fprintf(stderr,
-			"\nRECEIVED %s (%d), shutting down...\n",
-			sigstr, signal);
-
-		bot_ctx_t *bctx = rb;
-		xmpp_ctx_t *ctx = bctx->ctx;
-		xmpp_conn_t *conn = bctx->conn;
-
-		char muc_jid_buf[REGSTR_MAX];
-
-		xmpp_stanza_t *presence = xmpp_presence_new(ctx);
-		xmpp_stanza_set_id(presence, bctx->jid);
-		xmpp_stanza_set_type(presence, "unavailable");
-		memset(muc_jid_buf, '\0', REGSTR_MAX);
-		snprintf(muc_jid_buf, REGSTR_MAX, "%s/%s",
-			bctx->muc, bctx->nick);
-		xmpp_stanza_set_to(presence, muc_jid_buf);
-		xmpp_send(conn, presence);
-		xmpp_stanza_release(presence);
+	if (!bctx) {
+		fprintf(stderr, "Invalid BOT!!!\n");
+		return;
 	}
+
+	if (bctx->quit) {
+		fprintf(stderr, "stop_bot called twice for the same bot...\n");
+		return;
+	}
+
+	bctx->quit = 1;
+	xmpp_ctx_t *ctx = bctx->ctx;
+	xmpp_conn_t *conn = bctx->conn;
+
+	xmpp_stanza_t *presence = xmpp_presence_new(ctx);
+	xmpp_stanza_set_id(presence, bctx->jid);
+	xmpp_stanza_set_type(presence, "unavailable");
+	memset(muc_jid_buf, '\0', REGSTR_MAX);
+	snprintf(muc_jid_buf, REGSTR_MAX, "%s/%s",
+		bctx->muc, bctx->nick);
+	xmpp_stanza_set_to(presence, muc_jid_buf);
+	xmpp_send(conn, presence);
+	xmpp_stanza_release(presence);
+
+	for (i = MAX_N_BOTS-1; i >= 0 && bctx != bot_p[i]; i--);
+
+	if (i > 0) {
+		free(bctx);
+		bot_p[i] = NULL;
+	}
+}
+
+void
+stop_bots(void) {
+	for (int i = MAX_N_BOTS-1; i >= 0; i--) {
+		if (!bot_p[i])
+			continue;
+		stop_bot(bot_p[i]);
+	}
+}
+
+
+static int
+valid_muc_jid(const char *jid) {
+	fprintf(stderr, "valid_muc_jid (%s): ", jid);
+	xmpp_ctx_t *ctx = xmpp_ctx_new(NULL, NULL);
+
+	char *node = xmpp_jid_node(ctx, jid);
+	char *domain = xmpp_jid_domain(ctx, jid);
+	char *resource = xmpp_jid_resource(ctx, jid);
+
+	if (node && domain && strlen(node) && strlen(domain) && !resource) {
+		fprintf(stderr, "SUCCESS\n");
+		xmpp_free(ctx, node);
+		xmpp_free(ctx, domain);
+		xmpp_free(ctx, resource);
+		xmpp_ctx_free(ctx);
+		return 0;
+	}
+
+	fprintf(stderr, " ** FAILURE **: ");
+	unsigned short int rv = 0x01;
+
+	if (!node || !strlen(node))
+		rv = (rv|0x02);
+
+	if (!domain || !strlen(domain))
+		rv = (rv|0x04);
+
+	if (resource)
+		rv = (rv|0x08);
+
+	xmpp_free(ctx, node);
+	xmpp_free(ctx, domain);
+	xmpp_free(ctx, resource);
+	xmpp_ctx_free(ctx);
+
+	fprintf(stderr, "errval (%d)\n", rv);
+	return rv;
+}
+
+bot_ctx_t *
+spawn_bot(const char *spawn_cfg) {
+
+	char muc_jid_buf[REGSTR_MAX];
+	bot_ctx_t *bot = bot_ctx_new();
+	if (!bot)
+		return NULL;
+
+	char *mode_str = NULL;
+	snprintf(bot->spawn_cfg, SPAWN_CFG_MAX, "%s", spawn_cfg);
+	int va = parse_arg_str(bot->spawn_cfg, 3,
+		&bot->muc, &bot->nick, &mode_str);
+
+	if (va != 3) {
+		fprintf(stderr, "Failed to parse cfg string (%d).\n", va);
+		bot_ctx_free(bot);
+		return NULL;
+	}
+
+	if (valid_muc_jid(bot->muc) != 0) {
+		fprintf(stderr, "Failed to create spawn, invalid JID (muc)\n");
+		bot_ctx_free(bot);
+		return NULL;
+	}
+
+	bot->mode 		= atoi(mode_str);
+	bot->jid		= (bot_p[0])->jid;
+	bot->pass		= (bot_p[0])->pass;
+	bot->conn		= (bot_p[0])->conn;
+	bot->ctx		= (bot_p[0])->ctx;
+	bot->fifo_path 	= (bot_p[0])->fifo_path;
+	bot->connected 	= 1;
+
+	xmpp_ctx_t *ctx = bot->ctx;
+	xmpp_conn_t *conn = bot->conn;
+
+	char *cpid = xmpp_uuid_gen(ctx);
+
+	memset(muc_jid_buf, '\0', REGSTR_MAX);
+	snprintf(muc_jid_buf, REGSTR_MAX, "%s/%s",
+		bot->muc, bot->nick);
+
+	xmpp_stanza_t *pres = xmpp_presence_new(ctx);
+	xmpp_send(conn, pres);
+	xmpp_stanza_release(pres);
+
+	xmpp_stanza_t *presence = xmpp_stanza_new(ctx);
+	xmpp_stanza_set_name(presence, "presence");
+	
+	xmpp_stanza_set_id(presence, cpid);
+	xmpp_stanza_set_to(presence, muc_jid_buf);
+
+	xmpp_stanza_t *c = xmpp_stanza_new_from_string(ctx,
+		"<c xmlns='http://jabber.org/protocol/caps'"
+			" hash='sha-1'"
+			" node='https://github.com/stolenlan/uxmpp#bot'"
+			" ver='" XEP_0115_VER "'/>");
+	xmpp_stanza_add_child(presence, c);
+	xmpp_stanza_release(c);
+
+	xmpp_stanza_t *x = xmpp_stanza_new_from_string(ctx,
+		"<x xmlns='http://jabber.org/protocol/muc'/>");
+	xmpp_stanza_add_child(presence, x);
+	xmpp_stanza_release(x);
+
+	xmpp_id_handler_add(conn, cb_presence, cpid, bot);
+
+	xmpp_send(conn, presence);
+	xmpp_stanza_release(presence);
+	xmpp_free(ctx, cpid);
+
+	if (strlen(bot->in_fifo)) {
+		if (pthread_create(&bot->in_thread, NULL, 
+			th_watch_fifo, (void *)bot) == 0)
+			pthread_detach(bot->in_thread);
+		else
+			fprintf(stderr,
+				"ERROR: Unable to spawn thread\n");
+	}
+
+	if (strlen(bot->cmd_fifo)) {
+		if (pthread_create(&bot->cmd_thread, NULL, 
+			th_watch_cmd_fifo, (void *)bot) == 0)
+			pthread_detach(bot->cmd_thread);
+		else
+			fprintf(stderr,
+				"ERROR: Unable to spawn thread\n");
+	}
+
+	
+
+	return bot;
+}
+
+void	bot_sighandler(int signal) {
+	if (signal == SIGPIPE) {
+		fprintf(stderr, "RECEIVED SIGPIPE (%d): ignoring...\n", signal);
+		return;
+	}
+
+	static int last_signal = -1;
+
+	if (last_signal != -1) {
+		fprintf(stderr, "\nRECEIVED 2nd SIGNAL(%d): killing...\n", signal);
+		exit(0);
+	}
+
+	last_signal = signal;
+
+	fprintf(stderr, "\nRECEIVED SIGNAL(%d) Shutting down...\n", signal);
+
+	stop_bots();
+
 }

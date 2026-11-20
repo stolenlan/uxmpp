@@ -3,7 +3,7 @@
 
 #define VER_MAJ	"0"
 #define VER_MIN	"0"
-#define VER_PNT	"11"
+#define VER_PNT	"12"
 #define VERSION	VER_MAJ "." VER_MIN "." VER_PNT
 
 #define REGSTR_MAX	256
@@ -33,5 +33,6 @@ int	get_jid_credentials(char *jid, char *password);
 int	jid_get_local(char out[REGSTR_MAX], const char *jid);
 int	parse_version_stanza(char *out, int len, const char *stanza_text);
 int	pw_prompt(const char *prompt, char in_password[256]);
+void	sigpipe_supress(int signal);
 
 #endif

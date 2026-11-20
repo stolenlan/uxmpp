@@ -23,38 +23,61 @@
 
 #include "uxmpp.h"
 
-#define BOT_DWELL_SECS 10
+#define BOT_DEFAULT_REPLY \
+"Sorry?\n"\
+"Just a dumb bot here, no LLMs, telemetry, or funny-business.\n"
+
+#define BOT_HELP_TMPL \
+"```\n"\
+"uxmpp-%s:bot\n"\
+"Utilities For XMPP: in-band bot help\n\n"\
+"Commands (prefixed with `!%s'):\n"\
+"help            Show this help\n"\
+"disco   <jid>   Perform disco#info on <jid>\n"\
+"version <jid>   Get version information for <jid>\n"\
+"fortune         Display a classic fortune\n"\
+"```"
+
+#define BOT_DWELL_SECS 5
+#define MAX_N_BOTS 256
+#define SPAWN_CFG_MAX 1024
 
 enum bot_mode_t {BOT_MODE_NONE = 0, BOT_MODE_DEFAULT};
 
 typedef struct {
-	char 		in_fifo[PATH_MAX];
-	char 		out_fifo[PATH_MAX];
+	char		in_fifo[PATH_MAX];
+	char		out_fifo[PATH_MAX];
 	char		cmd_fifo[PATH_MAX];
 	char		*fifo_path;
-	char 		*jid;
-	char 		*muc;
-	char 		*nick;
-	char 		*pass;
+	char		*jid;
+	char		*muc;
+	char		*nick;
+	char		*pass;
+	char 		spawn_cfg[SPAWN_CFG_MAX];	/* Spawn data */
 
-	int 		connected;
-	int 		index;
-	int 		mode;
-	int 		quit;
+	int		connected;
+	int		index;
+	int		mode;
+	int		quit;
 	int		joined;
 	time_t		ts_start;
 
 	pthread_t	cmd_thread;
 	pthread_t	in_thread;
 
-	xmpp_conn_t 	*conn;
-	xmpp_ctx_t 	*ctx;
+	xmpp_conn_t	*conn;
+	xmpp_ctx_t	*ctx;
 } bot_ctx_t;
 
-bot_ctx_t 	bot_ctx_new(void);
-void            bot_ctx_free(bot_ctx_t *bctx);
-int 		start_bot(bot_ctx_t *bctx);
+bot_ctx_t *	bot_ctx_new(void);
+void		bot_ctx_free(bot_ctx_t *bctx);
+void		bot_sighandler(int signal);
+
+/* Spawn bot (using existing connection) and return it's index (-1 on fail) */
+bot_ctx_t *	spawn_bot(const char *spawn_cfg);
+int		start_bot(bot_ctx_t *bctx);
 void		stop_bot(bot_ctx_t *bctx);
-void 		stop_bots(int signal);
+void		stop_bot(bot_ctx_t *bctx);
+void		stop_bots(void);
 
 #endif

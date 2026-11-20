@@ -16,7 +16,12 @@
 #ifndef _UTIL_H
 #define _UTIL_H 1
 
-int 	is_file(const char *path);
-int 	is_dir(const char *path);
+#include <stdarg.h>
+
+int	checkurl(const char *c);
+void	dbgout(const char *fmt, ...);
+int	is_file(const char *path);
+int	is_dir(const char *path);
+int	parse_arg_str(char *buf, int n, ...);
 
 #endif

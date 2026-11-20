@@ -16,16 +16,43 @@ CC=cc
 
 PREFIX?=/usr/local
 MANPREFIX?=/usr/local/man
+DEBUG?=
 
 all:
 	@make -C src
 
-.PHONY: clean install test
+.PHONY: clean install lmemtest test
 clean:
 	@make -C src $@
+	rm -f valgrind-*.log
+	rm -f vgcore.*
+	rm -f *.core
+	rm -f ktrace.out
 
 install:
 	@make PREFIX=$(PREFIX) MANPREFIX=$(MANPREFIX) -C src $@
+
+lmemtest: clean
+	@make DEBUG="-g -DDEBUG" -C src
+	valgrind --show-leak-kinds=all \
+		--leak-check=full \
+		--track-origins=yes \
+		--log-file=valgrind-disco.log \
+		src/uxmpp \
+		-t conference.xmpp.sinelabs.ca \
+		disco
+	valgrind --show-leak-kinds=all \
+		--leak-check=full \
+		--track-origins=yes \
+		--log-file=valgrind-bot.log \
+		src/uxmpp \
+		-t sinelabs@conference.xmpp.sinelabs.ca \
+		-mn abott bot
+
+bmemtest: clean
+	@make DEBUG="-g -DDEBUG" -C src
+	MALLOC_OPTIONS=DCV ktrace -tu src/uxmpp -dt xmpp.sinelabs.ca disco
+	kdump -u malloc -f ./ktrace.out
 
 test:
 	@make -C src $@

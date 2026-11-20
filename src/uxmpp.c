@@ -2,12 +2,14 @@
 #include <sys/wait.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <signal.h>
 #include <string.h>
 #include <stdlib.h>
 #include <termios.h>
 
 #include <strophe.h>
 
+#include "util.h"
 #include "uxmpp.h"
 
 int
@@ -211,4 +213,11 @@ pw_prompt(const char *prompt, char in_password[REGSTR_MAX]) {
 	putchar('\n');
 
 	return 1;
+}
+
+void
+sigpipe_supress(int signal) {
+	if (signal != SIGPIPE)
+		return;
+	dbgout("RECEIVED SIGPIPE (%d): ignoring...\n", signal);
 }

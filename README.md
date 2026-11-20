@@ -83,6 +83,15 @@ Regardless, I'd encourage anyone to check out
 
 ## Changes
 
+Version 0.0.12
+
+- Refactor bot.c --> The way the bot was launched didn't clearly
+  facilitate multiple independent instances.
+- use sigaction instead of signal.
+- Trap/ignore SIGPIPE to facilitate profiling with valgrind --> valgrind
+  uses a pipe to communicate with the running program, as a result
+  valgrind will report memory errors caused by itself.
+
 Version 0.0.11
 
 - Added support to query version from both the main utility, and from the

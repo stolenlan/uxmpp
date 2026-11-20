@@ -15,10 +15,10 @@
 PREFIX?=/usr/local
 MANPREFIX?=/usr/local/man
 
-_CFLAGS=-O2 -fstack-protector-strong -fdiagnostics-color -Wall -Wextra \
-	-std=c17 \
-	-Wpedantic -Wshadow -D_DEFAULT_SOURCE -I/usr/local/include $(CFLAGS)
-LDFLAGS=-L/usr/local/lib -lstrophe -lpthread
+CFLAGS+=$(DEBUG) -fstack-protector-strong -fdiagnostics-color -Wall -Wextra \
+	-std=c17 -fno-omit-frame-pointer \
+	-Wpedantic -Wshadow -D_DEFAULT_SOURCE -I/usr/local/include
+LDFLAGS+=-L/usr/local/lib -lstrophe -lpthread
 
 OBJS=disco.o uxmpp.o bot.o ping.o util.o sendraw.o game.o
 TGTS=uxmpp
@@ -29,34 +29,34 @@ CLEAN=$(TGTS) *.o *.core ktrace.out \
 all: $(TGTS)
 
 disco.o: disco.c disco.h
-	$(CC) $(_CFLAGS) -c -o $@ disco.c
+	$(CC) $(CFLAGS) -c -o $@ disco.c
 
 game.o: game.c game.h
-	$(CC) $(_CFLAGS) -c -o $@ game.c
+	$(CC) $(CFLAGS) -c -o $@ game.c
 
 uxmpp.o: uxmpp.c uxmpp.h
-	$(CC) $(_CFLAGS) -c -o $@ uxmpp.c
+	$(CC) $(CFLAGS) -c -o $@ uxmpp.c
 
 bot.o: xep-0115-ver.h bot.c bot.h
-	$(CC) $(_CFLAGS) -c -o $@ bot.c
+	$(CC) $(CFLAGS) -c -o $@ bot.c
 
 ping.o: ping.c ping.h
-	$(CC) $(_CFLAGS) -c -o $@ ping.c
+	$(CC) $(CFLAGS) -c -o $@ ping.c
 
 util.o: util.c util.h
-	$(CC) $(_CFLAGS) -c -o $@ util.c
+	$(CC) $(CFLAGS) -c -o $@ util.c
 
 sendraw.o: sendraw.c sendraw.h
-	$(CC) $(_CFLAGS) -c -o $@ sendraw.c
+	$(CC) $(CFLAGS) -c -o $@ sendraw.c
 
 xep-0115-ver.h: xep-0115-ver-gen
 	@./xep-0115-ver-gen
 
 xep-0115-ver-gen: uxmpp.h xep-0115-ver-gen.c
-	$(CC) $(_CFLAGS) -o $@ xep-0115-ver-gen.c -lcrypto
+	$(CC) $(CFLAGS) -o $@ xep-0115-ver-gen.c -lcrypto
 
 uxmpp: $(OBJS) main.c
-	$(CC) $(_CFLAGS) -o $@ $(OBJS) main.c $(LDFLAGS)
+	$(CC) $(CFLAGS) -o $@ $(OBJS) main.c $(LDFLAGS)
 
 .PHONY: install
 install: all

@@ -48,13 +48,20 @@ int 	f_show_vers = 0;
 int
 main(int argc, char *argv[])
 {
-	char 	c, 
-		command[CMDLEN_MAX], fifo_path[PATH_MAX],
+	char 	c, command[CMDLEN_MAX], fifo_path[PATH_MAX],
 		jid[REGSTR_MAX], password[REGSTR_MAX],
 		rstanza[STANZA_MAX],
 		target_jid[REGSTR_MAX],
 		in_path[PATH_MAX], out_path[PATH_MAX],
 		nick[REGSTR_MAX];
+
+	struct 	sigaction sps;
+	sps.sa_flags = 0;
+	sps.sa_handler = sigpipe_supress;
+
+	sigemptyset(&sps.sa_mask);
+	sigaddset(&sps.sa_mask, SIGPIPE);
+	sigaction(SIGPIPE, &sps, NULL);
 
 	memset(command,      '\0', CMDLEN_MAX);
 	memset(fifo_path,    '\0', PATH_MAX);
@@ -203,21 +210,23 @@ main(int argc, char *argv[])
 		if (!strlen(nick))
 			jid_get_local(nick, jid);
 
-		bot_ctx_t bot = bot_ctx_new();
-		bot.nick = nick;
-		bot.jid = jid;
-		bot.pass = password;
-		bot.muc = target_jid;
-		bot.mode = f_bot_mode;
-		bot.fifo_path = fifo_path;
+		bot_ctx_t *bot = bot_ctx_new();
+		bot->nick = nick;
+		bot->jid = jid;
+		bot->pass = password;
+		bot->muc = target_jid;
+		bot->mode = f_bot_mode;
+		bot->fifo_path = fifo_path;
 
-		/* 2 == SIGINT, 3 == SIGQUIT, 15 == SIGTERM 
-		   The reason for not using the defs is: because Linux. */
-		signal(2, stop_bots);
-		signal(3, stop_bots);
-		signal(15, stop_bots);
+		struct sigaction sa;
+		sa.sa_flags = 0;
+		sa.sa_handler = bot_sighandler;
 
-		int retval = start_bot(&bot);
+		sigemptyset(&sa.sa_mask);
+		sigaddset(&sa.sa_mask, SIGINT);
+		sigaction(SIGINT, &sa, NULL);
+		
+		int retval = start_bot(bot);
 		if (retval != RETURN_SUCCESS)
 			fprintf(stderr, "Error: unable to start bot\n");
 
@@ -282,6 +291,6 @@ main(int argc, char *argv[])
 	printf("Unknown command: `%s` ("
 	       "valid commands: `disco`, `ping`, and `bot`)\n", command);
 
-	printf(USAGE_STR, __progname);
+	printf(USAGE_STR, __progname); 
 	return 1;
 }
