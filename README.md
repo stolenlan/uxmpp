@@ -83,6 +83,18 @@ Regardless, I'd encourage anyone to check out
 
 ## Changes
 
+Version 0.0.13
+
+- Fine! I don't want to but it looks like I need to use malloc here
+  instead of trying to shoehorn a static singleton instance of a disco
+  context object, now a new request allocates a context that is kept
+  until the request is resolved by libstrophe.
+  + TODO: implement cleanup timer when request goes out, if server/strophe
+    don't complete within the allotted time, return an error..
+- Add lmemtest and bmemtest for memory testing on Linux, and BSD
+  respectively.
+  
+
 Version 0.0.12
 
 - Refactor bot.c --> The way the bot was launched didn't clearly

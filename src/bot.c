@@ -37,6 +37,9 @@
 /* Running bots */
 static bot_ctx_t *bot_p[MAX_N_BOTS] = {0};
 
+/* Requests */
+static void *requests[MAX_N_REQUESTS] = {0};
+
 static int
 send_muc_message(xmpp_conn_t *const conn,
 	const char *text,
@@ -53,27 +56,40 @@ send_muc_message(xmpp_conn_t *const conn,
 
 static disco_ctx_t *
 disco_init(bot_ctx_t *bctx, const char *host) {
+	char *p;
 
-	static disco_ctx_t dctx = {0};
+	disco_ctx_t *dctx = malloc(sizeof(disco_ctx_t));
+	if (!dctx)
+		return NULL;
 
 	/* This function should check things */
-	memset(dctx.target, '\0', sizeof(dctx.target));
-	snprintf(dctx.target, sizeof(dctx.target), "%s", host);
+	memset(dctx, 0, sizeof(disco_ctx_t));
+	snprintf(dctx->target, REGSTR_MAX, "%s", host);
 
-	if (dctx.init) {
-		memset(dctx.result, '\0', DISCO_MAX_RESULT);
-		return &dctx;
+	/* Sanitize the target */
+	for (p = dctx->target; *p; p++) {
+		if (isspace(*p)) {
+			*p = '\0';
+			break;
+		}
 	}
 
-	dctx.init = 1;
-	dctx.active = 0;
-	dctx.conn = bctx->conn;
-	dctx.ref = (void *)bctx;
-	dctx.result = malloc(DISCO_MAX_RESULT);
-	memset(dctx.result, '\0', DISCO_MAX_RESULT);
-	dctx.p = dctx.result;
+	dctx->result = malloc(DISCO_MAX_RESULT);
 
-	return &dctx;
+	dctx->init = 1;
+	dctx->active = 0;
+	dctx->conn = bctx->conn;
+	dctx->ref = (void *)bctx;
+	memset(dctx->result, '\0', DISCO_MAX_RESULT);
+	dctx->p = dctx->result;
+
+	return dctx;
+}
+
+static void
+disco_ctx_free(disco_ctx_t *dctx) {
+	free(dctx->result);
+	free(dctx);
 }
 
 static int
@@ -100,8 +116,8 @@ bot_disco_reply(xmpp_conn_t * const conn,
 		send_muc_message(conn, buf, dctx->ref);
 
 		xmpp_free(ctx, (void *)err_txt);
-		free(dctx->result);
-		dctx->init = 0;
+		disco_ctx_free(dctx);
+
 		return 0;
 	}
 
@@ -116,9 +132,7 @@ bot_disco_reply(xmpp_conn_t * const conn,
 
 	display_disco_info(dctx, NULL); /* Add any trailing formatting */
 	send_muc_message(conn, dctx->result, dctx->ref);
-	free(dctx->result);
-	dctx->init = 0;
-
+	disco_ctx_free(dctx);
 	return 0;
 }
 
@@ -479,7 +493,6 @@ cb_presence(xmpp_conn_t *const conn,
 		return 0;
 	}
 
-
 	x = xmpp_stanza_get_child_by_name_and_ns(stanza, "x",
 		"http://jabber.org/protocol/muc#user");
 	if (!x)
@@ -529,7 +542,7 @@ cb_message_grpchat_botcmd(bot_ctx_t *bctx, const char *cmd) {
 
 			char buf[1024];
 			snprintf(buf, 1024,
-				"performing disco for %s...", p);
+				"performing discovery of %s...", dctx->target);
 			if (!dctx->active) {
 				dctx->active = 1;
 				send_muc_message(conn, buf, bctx);
@@ -585,7 +598,6 @@ cb_message_grpchat_botcmd(bot_ctx_t *bctx, const char *cmd) {
 				"spawn == peasant "
 				"== no perms, for now...",
 				bctx);
-
 	} else if (strncmp(p, "spawn", strlen("spawn")) == 0) {
 		if (bot_p[0] != bctx) {
 			send_muc_message(conn, "Spawn may not spawn more "
@@ -628,8 +640,7 @@ select_bot(bot_ctx_t *bctx, const char *from) {
 		const char *muc_node = xmpp_jid_node(bctx->ctx, pb->muc);
 		const char *muc_domain = xmpp_jid_domain(bctx->ctx, pb->muc);
 		if (strncmp(from_node, muc_node, strlen(from_node)) == 0
-			&& strncmp(from_domain, muc_domain, strlen(from_node)) == 0) {
-
+			&& strncmp(from_domain,muc_domain,strlen(from_node)) == 0) {
 			xmpp_free(bctx->ctx, (void *)from_node);
 			xmpp_free(bctx->ctx, (void *)from_domain);
 			xmpp_free(bctx->ctx, (void *)muc_node);
@@ -650,7 +661,7 @@ static void
 cb_message_grpchat(bot_ctx_t *bctx, const char *from, const char *body) {
 	char c, buf[4096], keybuf[REGSTR_MAX];
 	xmpp_conn_t *conn = bctx->conn;
-//TODO: VERIFY/VALIDATE from
+
 	bot_ctx_t *target_bot = select_bot(bctx, from);
 
 	/* Ignore the first few seconds of messages */
@@ -1260,8 +1271,6 @@ spawn_bot(const char *spawn_cfg) {
 				"ERROR: Unable to spawn thread\n");
 	}
 
-	
-
 	return bot;
 }
 
@@ -1283,5 +1292,4 @@ void	bot_sighandler(int signal) {
 	fprintf(stderr, "\nRECEIVED SIGNAL(%d) Shutting down...\n", signal);
 
 	stop_bots();
-
 }

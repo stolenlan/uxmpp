@@ -174,7 +174,7 @@ request_disco_info(disco_ctx_t *dctx, xmpp_handler hdl) {
 	xmpp_ctx_t *ctx = xmpp_conn_get_context(conn);
 	xmpp_stanza_t *iq = xmpp_stanza_new(ctx);
 	xmpp_stanza_t *query = xmpp_stanza_new(ctx);
-	char *idstr = xmpp_uuid_gen(ctx);
+	char *p, *idstr = xmpp_uuid_gen(ctx);
 
 	if (iq == NULL || query == NULL) {
 		fprintf(stderr, "Could not allocate disco stanza\n");
@@ -183,6 +183,14 @@ request_disco_info(disco_ctx_t *dctx, xmpp_handler hdl) {
 		if (query != NULL)
 			xmpp_stanza_release(query);
 		return;
+	}
+
+	/* Sanitize the target */
+	for (p = dctx->target; *p; p++) {
+		if (isspace(*p)) {
+			*p = '\0';
+			break;
+		}
 	}
 
 	xmpp_stanza_set_name(iq, "iq");

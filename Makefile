@@ -14,8 +14,8 @@
 
 CC=cc
 
-PREFIX?=/usr/local
-MANPREFIX?=/usr/local/man
+PREFIX?=/usr
+MANPREFIX?=/usr/share/man
 DEBUG?=
 
 all:
@@ -37,22 +37,24 @@ lmemtest: clean
 	valgrind --show-leak-kinds=all \
 		--leak-check=full \
 		--track-origins=yes \
-		--log-file=valgrind-disco.log \
-		src/uxmpp \
-		-t conference.xmpp.sinelabs.ca \
-		disco
-	valgrind --show-leak-kinds=all \
-		--leak-check=full \
-		--track-origins=yes \
 		--log-file=valgrind-bot.log \
 		src/uxmpp \
 		-t sinelabs@conference.xmpp.sinelabs.ca \
 		-mn abott bot
+# 	valgrind --show-leak-kinds=all \
+# 		--leak-check=full \
+# 		--track-origins=yes \
+# 		--log-file=valgrind-disco.log \
+# 		src/uxmpp \
+# 		-t conference.xmpp.sinelabs.ca \
+# 		disco
 
 bmemtest: clean
 	@make DEBUG="-g -DDEBUG" -C src
-	MALLOC_OPTIONS=DCV ktrace -tu src/uxmpp -dt xmpp.sinelabs.ca disco
-	kdump -u malloc -f ./ktrace.out
+	MALLOC_OPTIONS=DCV ktrace -tu src/uxmpp \
+		-t sinelabs@conference.xmpp.sinelabs.ca \
+		-mn abott bot
+# 	kdump -u malloc -f ./ktrace.out
 
 test:
 	@make -C src $@

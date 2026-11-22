@@ -19,6 +19,8 @@
 #include <stdio.h>
 #include <strophe.h>
 
+#include "uxmpp.h"
+
 #define DISCO_MAX_RESULT 8192
 
 #define XEP_0157_ADDRESSES \
