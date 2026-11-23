@@ -37,9 +37,6 @@
 /* Running bots */
 static bot_ctx_t *bot_p[MAX_N_BOTS] = {0};
 
-/* Requests */
-static void *requests[MAX_N_REQUESTS] = {0};
-
 static int
 send_muc_message(xmpp_conn_t *const conn,
 	const char *text,
@@ -391,63 +388,65 @@ cb_iq(xmpp_conn_t *const conn,
 
 	if ((query = xmpp_stanza_get_child_by_ns(stanza, "urn:xmpp:time")) 
 		!= NULL) {
-		/* XEP-0092 Software Version */
+		/* XEP-0202 Time */
 		snprintf(buf, 2048,
-		"<iq type='result' to='%s' from='%s' id='%s'>"
-		"%s"
-		"</iq>",
-		resp_to_jid,
-		resp_from_jid,
-		id, cb_iq_time());
+			"<iq type='result' to='%s' from='%s' id='%s'>"
+			"%s"
+			"</iq>",
+			resp_to_jid,
+			resp_from_jid,
+			id, cb_iq_time());
 	}
 
-	if ((query = xmpp_stanza_get_child_by_ns(stanza, "jabber:iq:version")) 
-		!= NULL)
+	if ((query = xmpp_stanza_get_child_by_ns(stanza, "jabber:iq:version"))
+		!= NULL) {
 		/* XEP-0092 Software Version */
 		snprintf(buf, 2048,
-		"<iq type='result' id='%s' to='%s' from='%s'>"
-		"<query xmlns='jabber:iq:version'>"
-		"<name>uxmpp</name>"
-		"<version>%s.%s.%s</version>"
-		"<os>Win98SE</os>"
-		"</query>"
-		"</iq>",
-		id,
-		resp_to_jid,
-		resp_from_jid,
-		VER_MAJ, VER_MIN, VER_PNT);
-		
+			"<iq type='result' id='%s' to='%s' from='%s'>"
+			"<query xmlns='jabber:iq:version'>"
+			"<name>uxmpp</name>"
+			"<version>%s.%s.%s</version>"
+			"<os>Win98SE</os>"
+			"</query>"
+			"</iq>",
+			id,
+			resp_to_jid,
+			resp_from_jid,
+			VER_MAJ, VER_MIN, VER_PNT);
+	}
 
 	if ((query = xmpp_stanza_get_child_by_ns(stanza,
-			"http://jabber.org/protocol/disco#info")) != NULL)
+			"http://jabber.org/protocol/disco#info")) != NULL) {
 		snprintf(buf, 2048,
-		"<iq id=\"%s\" from=\"%s\" to=\"%s\" type='result'>"
-		"<query xmlns='http://jabber.org/protocol/disco#info'"
-		" node='https://sinelabs.ca/uxmpp/mucbot#" XEP_0115_VER "'>"
-		"<identity xml:lang='en' category='client'"
-		" name='uxmpp %s.%s.%s' type='pc'/>"
-		"<feature var='http://jabber.org/protocol/caps'/>"
-		"<feature var='http://jabber.org/protocol/disco#info'/>"
-		"<feature var='http://jabber.org/protocol/disco#items'/>"
-		"<feature var='http://jabber.org/protocol/muc'/>"
-		"<feature var='urn:xmpp:ping'/>"
-		"<feature var='urn:xmpp:time'/>"
-		"</query>"
-		"</iq>",
-		id,
-		resp_from_jid,
-		resp_to_jid,
-		VER_MAJ, VER_MIN, VER_PNT);
+			"<iq id=\"%s\" from=\"%s\" to=\"%s\" type='result'>"
+			"<query xmlns='http://jabber.org/protocol/disco#info'"
+			" node='" XEP_0115_NODE XEP_0115_VER "'>"
+			"<identity xml:lang='en' category='client'"
+			" name='uxmpp %s' type='pc'/>"
+			"<feature var='http://jabber.org/protocol/caps'/>"
+			"<feature var='http://jabber.org/protocol/disco#info'/>"
+			"<feature var='http://jabber.org/protocol/disco#items'/>"
+			"<feature var='http://jabber.org/protocol/muc'/>"
+			"<feature var='urn:xmpp:ping'/>"
+			"<feature var='urn:xmpp:time'/>"
+			"</query>"
+			"</iq>",
+			id,
+			resp_from_jid,
+			resp_to_jid,
+			VERSION);
+	}
 
 	if ((query = xmpp_stanza_get_child_by_ns(stanza,
-		"http://jabber.org/protocol/disco#items")) != NULL)
+		"http://jabber.org/protocol/disco#items")) != NULL) {
 		snprintf(buf, 2048,
-		"<iq id=\"%s\" from=\"%s\" to=\"%s\" type='result'>"
-		"<query xmlns='http://jabber.org/protocol/disco#items'/>"
-		"</iq>",
-		id,
-		resp_from_jid,
-		resp_to_jid);
+			"<iq id=\"%s\" from=\"%s\" to=\"%s\" type='result'>"
+			"<query xmlns='http://jabber.org/protocol/disco#items'/>"
+			"</iq>",
+			id,
+			resp_from_jid,
+			resp_to_jid);
+	}
 
 	if (strlen(buf)) {
 		xmpp_stanza_t *iq = xmpp_stanza_new_from_string(ctx, buf);
@@ -925,7 +924,6 @@ on_connect(xmpp_conn_t * const conn,
 			bctx->muc, bctx->nick);
 
 		bctx->connected = 1;
-		// bctx->ts_start = time(NULL);
 
 		/* mk_fifos use xmpp_jid_* routines, and require a ctx */
 		if (mk_fifos(bctx) != 0) {
@@ -988,8 +986,6 @@ on_connect(xmpp_conn_t * const conn,
 				fprintf(stderr,
 					"ERROR: Unable to spawn thread\n");
 		}
-
-		
 
 	} else if (status == XMPP_CONN_FAIL) {
 		fprintf(stderr, "Connection or authentication "
@@ -1237,7 +1233,7 @@ spawn_bot(const char *spawn_cfg) {
 	xmpp_stanza_t *c = xmpp_stanza_new_from_string(ctx,
 		"<c xmlns='http://jabber.org/protocol/caps'"
 			" hash='sha-1'"
-			" node='https://github.com/stolenlan/uxmpp#bot'"
+			" node='" XEP_0115_NODE "'"
 			" ver='" XEP_0115_VER "'/>");
 	xmpp_stanza_add_child(presence, c);
 	xmpp_stanza_release(c);

@@ -26,10 +26,13 @@
 "urn:xmpp:ping<"\
 "urn:xmpp:time<"
 
+#define XEP_0115_NODE "https://github.com/stolenlan/uxmpp#bot"
+
 #define HDR_TPL \
 "#ifndef _XEP115VER_H\n"\
 "#define _XEP115VER_H 1\n"\
 "\n"\
+"#define XEP_0115_NODE \"" XEP_0115_NODE "\"\n"\
 "#define XEP_0115_STR \"%s\"\n"\
 "#define XEP_0115_VER \"%s\"\n"\
 "\n"\

@@ -83,6 +83,13 @@ Regardless, I'd encourage anyone to check out
 
 ## Changes
 
+Version 0.1.0
+
+- Fix issue with the XEP_0115 response in bot.c, added a def for the
+  applicable node value so that if I need to change it again, this doesn't
+  happen...
+- Tidy up some snprintf statements for clarity.
+
 Version 0.0.13
 
 - Fine! I don't want to but it looks like I need to use malloc here
@@ -93,7 +100,7 @@ Version 0.0.13
     don't complete within the allotted time, return an error..
 - Add lmemtest and bmemtest for memory testing on Linux, and BSD
   respectively.
-  
+
 
 Version 0.0.12
 
