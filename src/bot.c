@@ -405,14 +405,11 @@ cb_iq(xmpp_conn_t *const conn,
 			"<iq type='result' id='%s' to='%s' from='%s'>"
 			"<query xmlns='jabber:iq:version'>"
 			"<name>uxmpp</name>"
-			"<version>%s.%s.%s</version>"
+			"<version>%s</version>"
 			"<os>Win98SE</os>"
 			"</query>"
 			"</iq>",
-			id,
-			resp_to_jid,
-			resp_from_jid,
-			VER_MAJ, VER_MIN, VER_PNT);
+			id, resp_to_jid, resp_from_jid, VERSION);
 	}
 
 	if ((query = xmpp_stanza_get_child_by_ns(stanza,
@@ -420,8 +417,8 @@ cb_iq(xmpp_conn_t *const conn,
 		snprintf(buf, 2048,
 			"<iq id=\"%s\" from=\"%s\" to=\"%s\" type='result'>"
 			"<query xmlns='http://jabber.org/protocol/disco#info'"
-			" node='" XEP_0115_NODE XEP_0115_VER "'>"
-			"<identity xml:lang='en' category='client'"
+			" node='" XEP_0115_NODE "#" XEP_0115_VER "'>"
+			"<identity category='client'"
 			" name='uxmpp %s' type='pc'/>"
 			"<feature var='http://jabber.org/protocol/caps'/>"
 			"<feature var='http://jabber.org/protocol/disco#info'/>"
@@ -431,10 +428,7 @@ cb_iq(xmpp_conn_t *const conn,
 			"<feature var='urn:xmpp:time'/>"
 			"</query>"
 			"</iq>",
-			id,
-			resp_from_jid,
-			resp_to_jid,
-			VERSION);
+			id, resp_from_jid, resp_to_jid, VERSION);
 	}
 
 	if ((query = xmpp_stanza_get_child_by_ns(stanza,
@@ -443,9 +437,7 @@ cb_iq(xmpp_conn_t *const conn,
 			"<iq id=\"%s\" from=\"%s\" to=\"%s\" type='result'>"
 			"<query xmlns='http://jabber.org/protocol/disco#items'/>"
 			"</iq>",
-			id,
-			resp_from_jid,
-			resp_to_jid);
+			id, resp_from_jid, resp_to_jid);
 	}
 
 	if (strlen(buf)) {
@@ -955,7 +947,7 @@ on_connect(xmpp_conn_t * const conn,
 		xmpp_stanza_t *c = xmpp_stanza_new_from_string(ctx,
 			"<c xmlns='http://jabber.org/protocol/caps'"
 				" hash='sha-1'"
-				" node='https://github.com/stolenlan/uxmpp#bot'"
+				" node='" XEP_0115_NODE "'"
 				" ver='" XEP_0115_VER "'/>");
 		xmpp_stanza_add_child(presence, c);
 		xmpp_stanza_release(c);

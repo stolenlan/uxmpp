@@ -83,12 +83,20 @@ Regardless, I'd encourage anyone to check out
 
 ## Changes
 
+Version 0.1.1
+
+- Drop #bot from the applicable XEP_0115 node value, as the local part
+  must be used to delineate the version hash.
+- Still cannot connect to the operators MUC. Not sure what protocol
+  support is required.
+
 Version 0.1.0
 
 - Fix issue with the XEP_0115 response in bot.c, added a def for the
   applicable node value so that if I need to change it again, this doesn't
   happen...
 - Tidy up some snprintf statements for clarity.
+
 
 Version 0.0.13
 

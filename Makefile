@@ -40,7 +40,7 @@ lmemtest: clean
 		--log-file=valgrind-bot.log \
 		src/uxmpp \
 		-t sinelabs@conference.xmpp.sinelabs.ca \
-		-mn abott bot
+		-mdn abott bot
 # 	valgrind --show-leak-kinds=all \
 # 		--leak-check=full \
 # 		--track-origins=yes \

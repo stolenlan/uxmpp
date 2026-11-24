@@ -18,7 +18,7 @@
  * 
  **/
 #define XEP_0115_S \
-"client/pc/en/uxmpp " VERSION "<"\
+"client/pc//uxmpp " VERSION "<"\
 "http://jabber.org/protocol/caps<"\
 "http://jabber.org/protocol/disco#info<"\
 "http://jabber.org/protocol/disco#items<"\
@@ -26,7 +26,7 @@
 "urn:xmpp:ping<"\
 "urn:xmpp:time<"
 
-#define XEP_0115_NODE "https://github.com/stolenlan/uxmpp#bot"
+#define XEP_0115_NODE "https://github.com/stolenlan/uxmpp"
 
 #define HDR_TPL \
 "#ifndef _XEP115VER_H\n"\

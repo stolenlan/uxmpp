@@ -32,10 +32,10 @@
 "uxmpp-%s:bot\n"\
 "Utilities For XMPP: in-band bot help\n\n"\
 "Commands (prefixed with `!%s'):\n"\
-"help            Show this help\n"\
-"disco   <jid>   Perform disco#info on <jid>\n"\
-"version <jid>   Get version information for <jid>\n"\
-"fortune         Display a classic fortune\n"\
+"help             Show this help\n"\
+"disco    <jid>   Perform disco#info on <jid>\n"\
+"version  <jid>   Get version information for <jid>\n"\
+"fortune          Display a classic fortune\n"\
 "```"
 
 #define BOT_DWELL_SECS 5
@@ -60,6 +60,7 @@ typedef struct {
 	int		mode;
 	int		quit;
 	int		joined;
+	
 	time_t		ts_start;
 
 	pthread_t	cmd_thread;

@@ -3,7 +3,7 @@
 
 #define VER_MAJ	"0"
 #define VER_MIN	"1"
-#define VER_PNT	"0"
+#define VER_PNT	"1"
 #define VERSION	VER_MAJ "." VER_MIN "." VER_PNT
 
 #define REGSTR_MAX	256
