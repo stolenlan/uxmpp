@@ -14,8 +14,8 @@
 
 CC=cc
 
-PREFIX?=/usr
-MANPREFIX?=/usr/share/man
+PREFIX?=/usr/local
+MANPREFIX?=/usr/local/man
 DEBUG?=
 
 all:
@@ -30,7 +30,10 @@ clean:
 	rm -f ktrace.out
 
 install:
-	@make PREFIX=$(PREFIX) MANPREFIX=$(MANPREFIX) -C src $@
+	@make	DEBUG=$(DEBUG) \
+		PREFIX=$(PREFIX) \
+		MANPREFIX=$(MANPREFIX) \
+		-C src $@
 
 lmemtest: clean
 	@make DEBUG="-g -DDEBUG" -C src

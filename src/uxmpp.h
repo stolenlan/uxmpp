@@ -1,10 +1,13 @@
 #ifndef _UXMPP_H
 #define _UXMPP_H 1
 
-#define VER_MAJ	"0"
-#define VER_MIN	"1"
-#define VER_PNT	"1"
-#define VERSION	VER_MAJ "." VER_MIN "." VER_PNT
+#define VER_MAJ	       "0"
+#define VER_MIN	       "1"
+#define VER_PNT	       "3"
+#define VERSION	       VER_MAJ "." VER_MIN "." VER_PNT
+
+#define OS_NAME        "Win98SE"
+#define OS_VERSION     "4.10.2222A"
 
 #define REGSTR_MAX	256
 #define STANZA_MAX	8192

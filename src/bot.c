@@ -418,14 +418,34 @@ cb_iq(xmpp_conn_t *const conn,
 			"<iq id=\"%s\" from=\"%s\" to=\"%s\" type='result'>"
 			"<query xmlns='http://jabber.org/protocol/disco#info'"
 			" node='" XEP_0115_NODE "#" XEP_0115_VER "'>"
-			"<identity category='client'"
-			" name='uxmpp %s' type='pc'/>"
+			"<identity category='client' xml:lang='en'"
+			" name='uxmpp %s' type='console'/>"
 			"<feature var='http://jabber.org/protocol/caps'/>"
 			"<feature var='http://jabber.org/protocol/disco#info'/>"
 			"<feature var='http://jabber.org/protocol/disco#items'/>"
 			"<feature var='http://jabber.org/protocol/muc'/>"
 			"<feature var='urn:xmpp:ping'/>"
 			"<feature var='urn:xmpp:time'/>"
+			"<x xmlns='jabber:x:data' type='result'>"
+			"<field var='FORM_TYPE' type='hidden'>"
+			"<value>urn:xmpp:dataforms:softwareinfo</value>"
+			"</field>"
+			"<field var='ip_version' type='text-multi'>"
+			"<value>ipv4</value>"
+			"</field>"
+			"<field var='os'>"
+			"<value>" OS_NAME "</value>"
+			"</field>"
+			"<field var='os_version'>"
+			"<value>" OS_VERSION "</value>"
+			"</field>"
+			"<field var='software'>"
+			"<value>uxmpp</value>"
+			"</field>"
+			"<field var='software_version'>"
+			"<value>" VERSION "</value>"
+			"</field>"
+			"</x>"
 			"</query>"
 			"</iq>",
 			id, resp_from_jid, resp_to_jid, VERSION);
@@ -994,20 +1014,6 @@ on_connect(xmpp_conn_t * const conn,
 	(void)stream_error;
 }
 
-
-void
-bot_ctx_free(bot_ctx_t *bctx) {
-	int i;
-	for (i = 0; i < MAX_N_BOTS && bot_p[i]; i++) {
-		if (bot_p[i] == bctx) {
-			free(bot_p[i]);
-			bot_p[i] = NULL;
-		}
-	}
-	(void)bctx;
-}
-
-
 bot_ctx_t *
 bot_ctx_new(void) {
 
@@ -1020,9 +1026,35 @@ bot_ctx_new(void) {
 	bctx->index = i;
 	bot_p[bctx->index] = bctx;
 
+	bctx->in_fifo = malloc(PATH_MAX);
+	memset(bctx->in_fifo, '\0', PATH_MAX);
+	bctx->out_fifo = malloc(PATH_MAX);
+	memset(bctx->out_fifo, '\0', PATH_MAX);
+	bctx->cmd_fifo = malloc(PATH_MAX);
+	memset(bctx->cmd_fifo, '\0', PATH_MAX);
+
+	bctx->spawn_cfg = malloc(SPAWN_CFG_MAX);
+	memset(bctx->spawn_cfg, '\0', SPAWN_CFG_MAX);
+
 	return bctx;
 }
 
+void
+bot_ctx_free(bot_ctx_t *bctx) {
+	int i;
+	/* Search through bot pointers, free then NULL when found */
+	for (i = 0; i < MAX_N_BOTS && bot_p[i]; i++) {
+		if (bot_p[i] == bctx) {
+			free((bot_p[i])->in_fifo);
+			free((bot_p[i])->out_fifo);
+			free((bot_p[i])->cmd_fifo);
+			free((bot_p[i])->spawn_cfg);
+			free(bot_p[i]);
+			bot_p[i] = NULL;
+		}
+	}
+	(void)bctx;
+}
 
 /**
  * WORKING PRINCIPALs
@@ -1078,7 +1110,6 @@ start_bot(bot_ctx_t *bctx) {
 	xmpp_ctx_free(bctx->ctx);
 	xmpp_shutdown();
 	del_fifos(bctx);
-	free(bctx);
 
 	return RETURN_SUCCESS;
 }
@@ -1116,7 +1147,7 @@ stop_bot(bot_ctx_t *bctx) {
 	for (i = MAX_N_BOTS-1; i >= 0 && bctx != bot_p[i]; i--);
 
 	if (i > 0) {
-		free(bctx);
+		bot_ctx_free(bctx);
 		bot_p[i] = NULL;
 	}
 }

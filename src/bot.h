@@ -45,22 +45,22 @@
 enum bot_mode_t {BOT_MODE_NONE = 0, BOT_MODE_DEFAULT};
 
 typedef struct {
-	char		in_fifo[PATH_MAX];
-	char		out_fifo[PATH_MAX];
-	char		cmd_fifo[PATH_MAX];
+	char		*in_fifo;
+	char		*out_fifo;
+	char		*cmd_fifo;
 	char		*fifo_path;
 	char		*jid;
 	char		*muc;
 	char		*nick;
 	char		*pass;
-	char 		spawn_cfg[SPAWN_CFG_MAX];	/* Spawn data */
+	char 		*spawn_cfg;
 
 	int		connected;
 	int		index;
 	int		mode;
 	int		quit;
 	int		joined;
-	
+
 	time_t		ts_start;
 
 	pthread_t	cmd_thread;

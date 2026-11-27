@@ -18,13 +18,18 @@
  * 
  **/
 #define XEP_0115_S \
-"client/pc//uxmpp " VERSION "<"\
+"client/console/en/uxmpp " VERSION "<"\
 "http://jabber.org/protocol/caps<"\
 "http://jabber.org/protocol/disco#info<"\
 "http://jabber.org/protocol/disco#items<"\
 "http://jabber.org/protocol/muc<"\
 "urn:xmpp:ping<"\
-"urn:xmpp:time<"
+"urn:xmpp:time<"\
+"urn:xmpp:dataforms:softwareinfo<"\
+"ip_version<ipv4<"\
+"os<" OS_NAME "<"\
+"os_version<" OS_VERSION "<"\
+"software<uxmpp<software_version<" VERSION "<"
 
 #define XEP_0115_NODE "https://github.com/stolenlan/uxmpp"
 

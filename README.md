@@ -28,7 +28,7 @@ Apart from the overall direction, the following general goals apply:
 
 - **Code is clear, easy to reason about, and maintain.**
 - Utilities and functions should be applicable to general use cases.
-- Learn about, and contribute to the wider XMPP protocol.
+- Learn, test, and contribute to the wider XMPP protocol.
 - Provide feature tests and reference implementations for various XEPs
 
 ## Building and Installation
@@ -46,24 +46,27 @@ required.
 ### OpenBSD:
 
 ```shell
-$ make && \
+$ ./configure && \
+  make && \
   make install # As root
 ```
 
 ### Linux:
 
 ```shell
-$ make && \
-  sudo make PREFIX=/usr MAN_PREFIX=/usr/share install
+$ ./configure && \
+  make && \
+  sudo make install
 ```
 
 ### Windows:
 
 **Install BSD or Linux, be liberated, rejoice, then...**
 
-```sh
-$ make && \
-  sudo make PREFIX=/usr MAN_PREFIX=/usr/share install
+```shell
+$ ./configure && \
+  make && \
+  sudo make install
 ```
 
 ## AI Code(ing Agents)
@@ -75,13 +78,32 @@ implications, but that's not needed. I'm not judging anyone for the
 responsible use of generative AI, rather simply:
 this is not the place for it.
 
-Regardless, I'd encourage anyone to check out 
-[don't be a Meat Proxy](https://meatproxy.me "please...").
-
+[Don't be a Meat Proxy](https://meatproxy.me "Hilarious, and accurate.").
 
 ---
 
 ## Changes
+
+Version 0.1.3
+
+- Version bump to trigger other clients recalc of entity caps version hash
+- Operators MUC join is now working... Not sure if it's because I added
+  additional version information, corrected the node/vers string value, or
+  changed the client type to console?
+- Time to stop procrastinating, and configure the bot to join a series of
+  busy MUCs, pull entity caps/metadata, message frequency etc. for the
+  purposes of identifying potential spam across applicable federated svcs.
+- Update bot.c, give up and use malloc when allocating strings for fifos
+  and other bot metadata.
+
+
+Version 0.1.2
+
+- Added software version data to the initial entity caps string, and
+  updated xep-0115-ver-gen.c accordingly.
+- The operators MUC is not required for this bot, but I'm very curious
+  what is going on there... I could ask, but where's the fun in that?
+
 
 Version 0.1.1
 
@@ -89,6 +111,7 @@ Version 0.1.1
   must be used to delineate the version hash.
 - Still cannot connect to the operators MUC. Not sure what protocol
   support is required.
+
 
 Version 0.1.0
 
@@ -118,6 +141,7 @@ Version 0.0.12
 - Trap/ignore SIGPIPE to facilitate profiling with valgrind --> valgrind
   uses a pipe to communicate with the running program, as a result
   valgrind will report memory errors caused by itself.
+
 
 Version 0.0.11
 

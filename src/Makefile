@@ -14,6 +14,7 @@
 
 PREFIX?=/usr/local
 MANPREFIX?=/usr/local/man
+P_FORTUNE?=/usr/games/fortune
 
 CFLAGS+=$(DEBUG) -fstack-protector-strong -fdiagnostics-color -Wall -Wextra \
 	-std=c17 -fno-omit-frame-pointer \

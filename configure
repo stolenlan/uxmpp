@@ -5,6 +5,12 @@ MANPREFIX=/usr/local/man
 DEFAULT_CONFIG=1
 COLW=26
 
+
+configErr() {
+	echo "Configuration FAILED: ${1}"
+	exit 1
+}
+
 printUsage() {
 	echo "Usage: $(basename ${0}) [-p <install_prefix>] [-m <manprefix>]"
 }
@@ -34,8 +40,10 @@ findProg() {
 		echo "Found $1: ${PP}"
 		PPESC=$(echo "$PP" | sed -E 's/\//\\\//g')
 		sed -i -E "s/^${2}\?=.*$/${2}\?\=${PPESC}/g" Makefile
+		return 0
 	} || {
-		echo "Fortune not found!"
+		echo "MISSING: ${1}"
+		return 1
 	}
 }
 
@@ -75,8 +83,8 @@ MANPREFIX_ESCAPED=$(echo "$MANPREFIX" | sed -E 's/\//\\\//g')
 sed -i -E "s/^PREFIX\?=.*$/PREFIX\?\=${PREFIX_ESCAPED}/g" Makefile
 sed -i -E "s/^MANPREFIX\?=.*$/MANPREFIX\?\=${MANPREFIX_ESCAPED}/g" Makefile
 
-echo -e "OS: $OSYSTEM
-Install Prefix: $PREFIX
-Install Man Prefix: $MANPREFIX
----
-Configuration is complete"
+echo "OS: $OSYSTEM"
+echo "Install Prefix: $PREFIX"
+echo "Install Man Prefix: $MANPREFIX"
+
+echo -e "---\nConfiguration is complete"

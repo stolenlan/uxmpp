@@ -211,6 +211,12 @@ main(int argc, char *argv[])
 			jid_get_local(nick, jid);
 
 		bot_ctx_t *bot = bot_ctx_new();
+
+		if (!bot) {
+			printf("Error allocating memory\n");
+			return 1;
+		}
+
 		bot->nick = nick;
 		bot->jid = jid;
 		bot->pass = password;
@@ -229,6 +235,8 @@ main(int argc, char *argv[])
 		int retval = start_bot(bot);
 		if (retval != RETURN_SUCCESS)
 			fprintf(stderr, "Error: unable to start bot\n");
+
+		bot_ctx_free(bot);
 
 		return retval;
 	}
